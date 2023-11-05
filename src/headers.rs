@@ -1,8 +1,17 @@
 use headers::{Error, Header, HeaderName, HeaderValue};
-use std::iter;
+use std::{borrow::Borrow, iter, ops::Deref};
 
 static EVENT_SLUG: HeaderName = HeaderName::from_static("event-slug");
 static EVENT_ORGANIZATION_ID: HeaderName = HeaderName::from_static("event-organization-id");
+static USER_SESSION: HeaderName = HeaderName::from_static("user-session");
+static OAUTH_PROVIDER_SLUG: HeaderName = HeaderName::from_static("oauth-provider-slug");
+static OAUTH_USER_ID: HeaderName = HeaderName::from_static("oauth-user-id");
+static OAUTH_USER_EMAIL: HeaderName = HeaderName::from_static("oauth-user-email");
+static USER_ID: HeaderName = HeaderName::from_static("user-id");
+static USER_GIVEN_NAME: HeaderName = HeaderName::from_static("user-given-name");
+static USER_FAMILY_NAME: HeaderName = HeaderName::from_static("user-family-name");
+static USER_EMAIL: HeaderName = HeaderName::from_static("user-email");
+static USER_IS_ADMIN: HeaderName = HeaderName::from_static("user-is-admin");
 
 macro_rules! expose_inner {
     ( $target:ident ( $as:ty ) ) => {
@@ -16,19 +25,19 @@ macro_rules! expose_inner {
             }
         }
 
-        impl ::std::convert::AsRef<$shared> for $target {
+        impl AsRef<$shared> for $target {
             fn as_ref(&self) -> &$shared {
                 &self.0
             }
         }
 
-        impl ::std::borrow::Borrow<$shared> for $target {
+        impl Borrow<$shared> for $target {
             fn borrow(&self) -> &$shared {
                 &self.0
             }
         }
 
-        impl ::std::ops::Deref for $target {
+        impl Deref for $target {
             type Target = $shared;
 
             fn deref(&self) -> &Self::Target {
@@ -38,15 +47,152 @@ macro_rules! expose_inner {
     };
 }
 
-/// `Event-Slug` header containing the event's slug
+macro_rules! text_header {
+    (
+        $( #[$attr:meta] )*
+        ascii $name:ident, $header_name:ident
+    ) => {
+        text_header!(@internal
+            $( #[$attr] )*
+            $name
+        );
+
+        impl Header for $name {
+            fn name() -> &'static HeaderName {
+                &$header_name
+            }
+
+            fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+            where
+                I: Iterator<Item = &'i HeaderValue>,
+            {
+                let value = values.next().ok_or_else(Error::invalid)?;
+                let decoded = value.to_str().map_err(|_| Error::invalid())?;
+
+                Ok(Self(decoded.to_owned()))
+            }
+
+            fn encode<E>(&self, values: &mut E)
+            where
+                E: Extend<HeaderValue>,
+            {
+                let value = HeaderValue::try_from(&self.0).expect("must be valid ascii");
+                values.extend(iter::once(value))
+            }
+        }
+    };
+    (
+        $( #[$attr:meta] )*
+        utf8 $name:ident, $header_name:ident
+    ) => {
+        text_header!(@internal
+            $( #[$attr] )*
+            $name
+        );
+
+        impl Header for $name {
+            fn name() -> &'static HeaderName {
+                &$header_name
+            }
+
+            fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+            where
+                I: Iterator<Item = &'i HeaderValue>,
+            {
+                let value = values.next().ok_or_else(Error::invalid)?.as_bytes();
+                let decoded = String::from_utf8(value.to_vec()).map_err(|_| Error::invalid())?;
+
+                Ok(Self(decoded))
+            }
+
+            fn encode<E>(&self, values: &mut E)
+            where
+                E: Extend<HeaderValue>,
+            {
+                let value = HeaderValue::from_bytes(&self.0.as_bytes()).expect("must be valid bytes");
+                values.extend(iter::once(value))
+            }
+        }
+    };
+    (@internal
+        $( #[$attr:meta] )*
+        $name:ident
+    ) => {
+        $( #[$attr] )*
+        #[derive(Clone, Debug, Eq, PartialEq)]
+        pub struct $name(String);
+
+        expose_inner!($name(shared: str, owned: String));
+    };
+}
+
+macro_rules! int_header {
+    (
+        $( #[$attr:meta] )*
+        $name:ident, $header_name:ident
+    ) => {
+        $( #[$attr] )*
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub struct $name(i32);
+
+        expose_inner!($name(i32));
+
+        impl Header for $name {
+            fn name() -> &'static HeaderName {
+                &$header_name
+            }
+
+            fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+            where
+                I: Iterator<Item = &'i HeaderValue>,
+            {
+                let value = values.next().ok_or_else(Error::invalid)?;
+                let decoded = value
+                    .to_str()
+                    .map_err(|_| Error::invalid())?
+                    .parse()
+                    .map_err(|_| Error::invalid())?;
+
+                Ok(Self(decoded))
+            }
+
+            fn encode<E>(&self, values: &mut E)
+            where
+                E: Extend<HeaderValue>,
+            {
+                let value = HeaderValue::from(self.0);
+                values.extend(iter::once(value))
+            }
+        }
+    };
+}
+
+text_header! {
+    /// `Event-Slug` header containing the event's slug
+    ascii EventSlug, EVENT_SLUG
+}
+
+int_header! {
+    /// `Event-Organization-ID` header containing the ID of the organization that runs the event
+    EventOrganizationId, EVENT_ORGANIZATION_ID
+}
+
+/// `User-Session` header containing the user's authentication status
 #[derive(Debug)]
-pub struct EventSlug(String);
+pub enum UserSession {
+    /// The user is unauthenticated
+    Unauthenticated,
+    /// The user is logging in
+    OAuth,
+    /// The user needs to complete registration
+    RegistrationNeeded,
+    /// The user is fully authenticated
+    Authenticated,
+}
 
-expose_inner!(EventSlug(shared: str, owned: String));
-
-impl Header for EventSlug {
+impl Header for UserSession {
     fn name() -> &'static HeaderName {
-        &EVENT_SLUG
+        &USER_SESSION
     }
 
     fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
@@ -54,29 +200,76 @@ impl Header for EventSlug {
         I: Iterator<Item = &'i HeaderValue>,
     {
         let value = values.next().ok_or_else(Error::invalid)?;
-        let decoded = value.to_str().map_err(|_| Error::invalid())?;
 
-        Ok(Self(decoded.to_owned()))
+        match value.as_bytes() {
+            b"unauthenticated" => Ok(Self::Unauthenticated),
+            b"oauth" => Ok(Self::OAuth),
+            b"registration-needed" => Ok(Self::RegistrationNeeded),
+            b"authenticated" => Ok(Self::Authenticated),
+            _ => Err(Error::invalid()),
+        }
     }
 
     fn encode<E>(&self, values: &mut E)
     where
         E: Extend<HeaderValue>,
     {
-        let value = HeaderValue::try_from(&self.0).expect("must be valid ascii");
+        let value = HeaderValue::from_static(match self {
+            Self::Unauthenticated => "unauthenticated",
+            Self::OAuth => "oauth",
+            Self::RegistrationNeeded => "registration-needed",
+            Self::Authenticated => "authenticated",
+        });
+
         values.extend(iter::once(value))
     }
 }
 
-/// `Event-Organization-ID` header containing the ID of the organization that runs the event
-#[derive(Debug)]
-pub struct EventOrganizationId(i32);
+text_header! {
+    /// `OAuth-Provider-Slug` header containing the slug of the provider the user used to
+    /// authenticate with
+    ascii OAuthProviderSlug, OAUTH_PROVIDER_SLUG
+}
 
-expose_inner!(EventOrganizationId(i32));
+text_header! {
+    /// `OAuth-User-ID` header containing the user's ID according to the provider
+    ascii OAuthUserId, OAUTH_USER_ID
+}
 
-impl Header for EventOrganizationId {
+text_header! {
+    /// `OAuth-User-Email` header containing the user's email according to the OAuth provider
+    utf8 OAuthUserEmail, OAUTH_USER_EMAIL
+}
+
+text_header! {
+    /// `User-Given-Name` header containing the user's given/first name
+    utf8 UserGivenName, USER_GIVEN_NAME
+}
+
+text_header! {
+    /// `User-Family-Name` header containing the user's family/last name
+    utf8 UserFamilyName, USER_FAMILY_NAME
+}
+
+text_header! {
+    /// `User-Email` header containing the user's email
+    utf8 UserEmail, USER_EMAIL
+}
+
+int_header! {
+    /// `User-ID` header containing the user's ID
+    UserId, USER_ID
+}
+
+/// `User-Is-Admin` header containing whether the user is an admin
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UserIsAdmin(bool);
+
+expose_inner!(UserIsAdmin(bool));
+
+impl Header for UserIsAdmin {
     fn name() -> &'static HeaderName {
-        &EVENT_ORGANIZATION_ID
+        &USER_IS_ADMIN
     }
 
     fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
@@ -84,20 +277,19 @@ impl Header for EventOrganizationId {
         I: Iterator<Item = &'i HeaderValue>,
     {
         let value = values.next().ok_or_else(Error::invalid)?;
-        let decoded = value
-            .to_str()
-            .map_err(|_| Error::invalid())?
-            .parse()
-            .map_err(|_| Error::invalid())?;
 
-        Ok(Self(decoded))
+        match value.as_bytes() {
+            b"true" => Ok(Self(true)),
+            b"false" => Ok(Self(false)),
+            _ => Err(Error::invalid()),
+        }
     }
 
     fn encode<E>(&self, values: &mut E)
     where
         E: Extend<HeaderValue>,
     {
-        let value = HeaderValue::from(self.0);
+        let value = HeaderValue::from_static(if self.0 { "true" } else { "false" });
         values.extend(iter::once(value))
     }
 }
