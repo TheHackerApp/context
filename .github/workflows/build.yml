@@ -1,0 +1,15 @@
+---
+name: Build
+
+on:  # yamllint disable-line rule:truthy
+  - push
+
+jobs:
+  default:
+    name: Library
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo build --release
