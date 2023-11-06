@@ -178,7 +178,7 @@ int_header! {
 }
 
 /// `User-Session` header containing the user's authentication status
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UserSession {
     /// The user is unauthenticated
     Unauthenticated,
