@@ -7,7 +7,8 @@ use axum::{
     extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
     RequestPartsExt,
 };
-use http::request::Parts;
+use headers::HeaderMapExt;
+use http::{request::Parts, HeaderMap};
 use serde::{Deserialize, Serialize};
 
 /// Query parameters for fetching the user context
@@ -18,7 +19,7 @@ pub struct Params {
 }
 
 /// The user context response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Context {
     /// The user is unauthenticated
@@ -30,6 +31,31 @@ pub enum Context {
     RegistrationNeeded(RegistrationNeededContext),
     /// The user is fully authenticated
     Authenticated(AuthenticatedContext),
+}
+
+impl Context {
+    /// Serialize the context into request headers
+    pub fn into_headers(self) -> HeaderMap {
+        let mut map = HeaderMap::with_capacity(1);
+        self.write_headers(&mut map);
+        map
+    }
+
+    /// Write the context to request headers
+    pub fn write_headers(self, headers: &mut HeaderMap) {
+        match self {
+            Context::Unauthenticated => headers.typed_insert(UserSession::Unauthenticated),
+            Context::OAuth => headers.typed_insert(UserSession::OAuth),
+            Context::RegistrationNeeded(context) => {
+                headers.typed_insert(UserSession::RegistrationNeeded);
+                context.write_headers(headers);
+            }
+            Context::Authenticated(context) => {
+                headers.typed_insert(UserSession::Authenticated);
+                context.write_headers(headers);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -56,7 +82,7 @@ where
 }
 
 /// Context parameters when the user needs to finish their registration
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RegistrationNeededContext {
     /// The slug of the provider the user authenticated with
     pub provider: String,
@@ -64,6 +90,15 @@ pub struct RegistrationNeededContext {
     pub id: String,
     /// The user's primary email from the provider
     pub email: String,
+}
+
+impl RegistrationNeededContext {
+    /// Write the context to request headers
+    fn write_headers(self, headers: &mut HeaderMap) {
+        headers.typed_insert(OAuthProviderSlug::from(self.provider));
+        headers.typed_insert(OAuthUserId::from(self.id));
+        headers.typed_insert(OAuthUserEmail::from(self.email));
+    }
 }
 
 #[async_trait]
@@ -87,7 +122,7 @@ where
 }
 
 /// Context parameters when the user is authenticated
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AuthenticatedContext {
     /// The user's ID
     pub id: i32,
@@ -99,6 +134,17 @@ pub struct AuthenticatedContext {
     pub email: String,
     /// Whether the user is an admin
     pub is_admin: bool,
+}
+
+impl AuthenticatedContext {
+    /// Write the context to request headers
+    fn write_headers(self, headers: &mut HeaderMap) {
+        headers.typed_insert(UserId::from(self.id));
+        headers.typed_insert(UserGivenName::from(self.given_name));
+        headers.typed_insert(UserFamilyName::from(self.family_name));
+        headers.typed_insert(UserEmail::from(self.email));
+        headers.typed_insert(UserIsAdmin::from(self.is_admin));
+    }
 }
 
 #[async_trait]

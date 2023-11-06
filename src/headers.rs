@@ -122,6 +122,12 @@ macro_rules! text_header {
         #[derive(Clone, Debug, Eq, PartialEq)]
         pub struct $name(String);
 
+        impl From<String> for $name {
+            fn from(value: String) -> Self {
+                Self(value)
+            }
+        }
+
         expose_inner!($name(shared: str, owned: String));
     };
 }
@@ -136,6 +142,12 @@ macro_rules! int_header {
         pub struct $name(i32);
 
         expose_inner!($name(i32));
+
+        impl From<i32> for $name {
+            fn from(value: i32) -> Self {
+                Self(value)
+            }
+        }
 
         impl Header for $name {
             fn name() -> &'static HeaderName {
@@ -264,6 +276,12 @@ int_header! {
 /// `User-Is-Admin` header containing whether the user is an admin
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UserIsAdmin(bool);
+
+impl From<bool> for UserIsAdmin {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
 
 expose_inner!(UserIsAdmin(bool));
 

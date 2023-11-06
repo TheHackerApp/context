@@ -4,7 +4,8 @@ use axum::{
     extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
     RequestPartsExt,
 };
-use http::request::Parts;
+use headers::HeaderMapExt;
+use http::{request::Parts, HeaderMap};
 use serde::{Deserialize, Serialize};
 
 /// Query parameters for fetching the event context
@@ -15,12 +16,27 @@ pub struct Params {
 }
 
 /// The event context response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Context {
     /// The event slug
     pub event: String,
     /// The ID of the organization that manages the event
     pub organization_id: i32,
+}
+
+impl Context {
+    /// Serialize the context into request headers
+    pub fn into_headers(self) -> HeaderMap {
+        let mut map = HeaderMap::with_capacity(2);
+        self.write_headers(&mut map);
+        map
+    }
+
+    /// Write the context to request headers
+    pub fn write_headers(self, headers: &mut HeaderMap) {
+        headers.typed_insert(EventSlug::from(self.event));
+        headers.typed_insert(EventOrganizationId::from(self.organization_id));
+    }
 }
 
 #[async_trait]
