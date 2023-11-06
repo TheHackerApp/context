@@ -16,7 +16,8 @@ pub struct Params {
 }
 
 /// The event context response
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct Context {
     /// The event slug
     pub event: String,
@@ -63,9 +64,10 @@ mod tests {
     use super::Context;
     use crate::{error_test_cases, request};
     use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
+    use http::Request;
 
     #[tokio::test]
-    async fn valid() {
+    async fn from_request_valid() {
         let mut parts = request! {
             "Event-Slug" => "wafflehacks",
             "Event-Organization-ID" => "5",
@@ -77,24 +79,51 @@ mod tests {
     }
 
     error_test_cases! {
-        missing_slug("Event-Organization-ID" => "5") => {
+        from_request_missing_slug("Event-Organization-ID" => "5") => {
             header: "event-slug",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        slug_only_accepts_ascii("Event-Slug" => "öne", "Event-Organization-ID" => "5") => {
+        from_request_slug_only_accepts_ascii("Event-Slug" => "öne", "Event-Organization-ID" => "5") => {
             header: "event-slug",
             reason: TypedHeaderRejectionReason::Error(_),
         };
     }
 
     error_test_cases! {
-        missing_organization_id("event-slug" => "wafflehacks") => {
+        from_request_missing_organization_id("event-slug" => "wafflehacks") => {
             header: "event-organization-id",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        invalid_organization_id("Event-Slug" => "testing", "Event-Organization-ID" => "af") => {
+        from_request_invalid_organization_id("Event-Slug" => "testing", "Event-Organization-ID" => "af") => {
             header: "event-organization-id",
             reason: TypedHeaderRejectionReason::Error(_),
         };
+    }
+
+    #[test]
+    fn into_headers() {
+        let context = Context {
+            event: String::from("wafflehacks"),
+            organization_id: 6,
+        };
+        let headers = context.into_headers();
+
+        assert_eq!(headers.get("event-slug").unwrap(), "wafflehacks");
+        assert_eq!(headers.get("event-organization-id").unwrap(), "6");
+    }
+
+    #[tokio::test]
+    async fn roundtrip() {
+        let context = Context {
+            event: String::from("testing"),
+            organization_id: 99,
+        };
+
+        let mut request = Request::<()>::default();
+        *request.headers_mut() = context.clone().into_headers();
+        let (mut parts, _) = request.into_parts();
+
+        let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        assert_eq!(context, roundtripped);
     }
 }

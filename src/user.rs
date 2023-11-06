@@ -19,7 +19,8 @@ pub struct Params {
 }
 
 /// The user context response
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Context {
     /// The user is unauthenticated
@@ -82,7 +83,8 @@ where
 }
 
 /// Context parameters when the user needs to finish their registration
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct RegistrationNeededContext {
     /// The slug of the provider the user authenticated with
     pub provider: String,
@@ -122,7 +124,8 @@ where
 }
 
 /// Context parameters when the user is authenticated
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct AuthenticatedContext {
     /// The user's ID
     pub id: i32,
@@ -173,12 +176,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Context;
+    use super::{AuthenticatedContext, Context, RegistrationNeededContext};
     use crate::{error_test_cases, request};
     use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
+    use http::Request;
 
     #[tokio::test]
-    async fn valid_unauthenticated() {
+    async fn from_request_valid_unauthenticated() {
         let mut parts = request! {
             "User-Session" => "unauthenticated",
         };
@@ -188,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_oauth() {
+    async fn from_request_valid_oauth() {
         let mut parts = request! {
             "User-Session" => "oauth",
         };
@@ -198,7 +202,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_registration_needed() {
+    async fn from_request_valid_registration_needed() {
         let mut parts = request! {
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
@@ -217,7 +221,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_authenticated() {
+    async fn from_request_valid_authenticated() {
         let mut parts = request! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
@@ -240,18 +244,18 @@ mod tests {
     }
 
     error_test_cases! {
-        missing_session_state() => {
+        from_request_missing_session_state() => {
             header: "user-session",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        invalid_session_state("User-Session" => "unknown") => {
+        from_request_invalid_session_state("User-Session" => "unknown") => {
             header: "user-session",
             reason: TypedHeaderRejectionReason::Error(_),
         };
     }
 
     error_test_cases! {
-        registration_needed_missing_oauth_provider(
+        from_request_registration_needed_missing_oauth_provider(
             "User-Session" => "registration-needed",
             "OAuth-User-ID" => "1234567890",
             "OAuth-User-Email" => "hello@world.com",
@@ -259,7 +263,7 @@ mod tests {
             header: "oauth-provider-slug",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        registration_needed_oauth_provider_only_accepts_ascii(
+        from_request_registration_needed_oauth_provider_only_accepts_ascii(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "göögle",
             "OAuth-User-ID" => "1234567890",
@@ -268,7 +272,7 @@ mod tests {
             header: "oauth-provider-slug",
             reason: TypedHeaderRejectionReason::Error(_),
         };
-        registration_needed_missing_user_id(
+        from_request_registration_needed_missing_user_id(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-Email" => "hello@world.com",
@@ -276,7 +280,7 @@ mod tests {
             header: "oauth-user-id",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        registration_needed_user_id_only_accepts_ascii(
+        from_request_registration_needed_user_id_only_accepts_ascii(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-ID" => "123456789ö",
@@ -285,7 +289,7 @@ mod tests {
             header: "oauth-user-id",
             reason: TypedHeaderRejectionReason::Error(_),
         };
-        registration_needed_missing_user_email(
+        from_request_registration_needed_missing_user_email(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-ID" => "1234567890",
@@ -296,7 +300,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registration_needed_user_email_accepts_utf8() {
+    async fn from_request_registration_needed_user_email_accepts_utf8() {
         let mut parts = request! {
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
@@ -312,7 +316,7 @@ mod tests {
     }
 
     error_test_cases! {
-        authenticated_missing_id(
+        from_request_authenticated_missing_id(
             "User-Session" => "authenticated",
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
@@ -322,7 +326,7 @@ mod tests {
             header: "user-id",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        authenticated_invalid_id(
+        from_request_authenticated_invalid_id(
             "User-Session" => "authenticated",
             "User-ID" => "af",
             "User-Given-Name" => "John",
@@ -333,7 +337,7 @@ mod tests {
             header: "user-id",
             reason: TypedHeaderRejectionReason::Error(_),
         };
-        authenticated_missing_given_name(
+        from_request_authenticated_missing_given_name(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Family-Name" => "Doe",
@@ -343,7 +347,7 @@ mod tests {
             header: "user-given-name",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        authenticated_missing_family_name(
+        from_request_authenticated_missing_family_name(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -353,7 +357,7 @@ mod tests {
             header: "user-family-name",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        authenticated_missing_email(
+        from_request_authenticated_missing_email(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -363,7 +367,7 @@ mod tests {
             header: "user-email",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        authenticated_missing_is_admin(
+        from_request_authenticated_missing_is_admin(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -373,7 +377,7 @@ mod tests {
             header: "user-is-admin",
             reason: TypedHeaderRejectionReason::Missing,
         };
-        authenticated_invalid_is_admin(
+        from_request_authenticated_invalid_is_admin(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -387,7 +391,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticated_given_name_accepts_utf8() {
+    async fn from_request_authenticated_given_name_accepts_utf8() {
         let mut parts = request! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
@@ -405,7 +409,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticated_family_name_accepts_utf8() {
+    async fn from_request_authenticated_family_name_accepts_utf8() {
         let mut parts = request! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
@@ -423,7 +427,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticated_email_accepts_utf8() {
+    async fn from_request_authenticated_email_accepts_utf8() {
         let mut parts = request! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
@@ -438,5 +442,88 @@ mod tests {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
         assert_eq!(context.email, "jöhn.döe@gmail.cöm");
+    }
+
+    #[test]
+    fn into_headers_unauthenticated() {
+        let headers = Context::Unauthenticated.into_headers();
+        assert_eq!(headers.get("user-session").unwrap(), "unauthenticated");
+    }
+
+    #[test]
+    fn into_headers_oauth() {
+        let headers = Context::OAuth.into_headers();
+        assert_eq!(headers.get("user-session").unwrap(), "oauth");
+    }
+
+    #[test]
+    fn into_headers_registration_needed() {
+        let context = Context::RegistrationNeeded(RegistrationNeededContext {
+            provider: String::from("google"),
+            id: String::from("01234567890"),
+            email: String::from("hello@world.com"),
+        });
+        let headers = context.into_headers();
+
+        assert_eq!(headers.get("user-session").unwrap(), "registration-needed");
+        assert_eq!(headers.get("oauth-provider-slug").unwrap(), "google");
+        assert_eq!(headers.get("oauth-user-id").unwrap(), "01234567890");
+        assert_eq!(headers.get("oauth-user-email").unwrap(), "hello@world.com");
+    }
+
+    #[test]
+    fn into_headers_authenticated() {
+        let context = Context::Authenticated(AuthenticatedContext {
+            id: 79,
+            given_name: String::from("John"),
+            family_name: String::from("Doe"),
+            email: String::from("john.doe@gmail.com"),
+            is_admin: false,
+        });
+        let headers = context.into_headers();
+
+        assert_eq!(headers.get("user-session").unwrap(), "authenticated");
+        assert_eq!(headers.get("user-id").unwrap(), "79");
+        assert_eq!(headers.get("user-given-name").unwrap(), "John");
+        assert_eq!(headers.get("user-family-name").unwrap(), "Doe");
+        assert_eq!(headers.get("user-email").unwrap(), "john.doe@gmail.com");
+        assert_eq!(headers.get("user-is-admin").unwrap(), "false");
+    }
+
+    macro_rules! test_roundtrip {
+        ( $(
+            $name:ident ( $context:expr )
+        );+ $(;)? ) => {
+            $(
+                #[tokio::test]
+                async fn $name() {
+                    let context = $context;
+
+                    let mut request = Request::<()>::default();
+                    *request.headers_mut() = context.clone().into_headers();
+                    let (mut parts, _) = request.into_parts();
+
+                    let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
+                    assert_eq!(context, roundtripped);
+                }
+            )+
+        };
+    }
+
+    test_roundtrip! {
+        roundtrip_unauthenticated(Context::Unauthenticated);
+        roundtrip_oauth(Context::OAuth);
+        roundtrip_registration_needed(Context::RegistrationNeeded(RegistrationNeededContext {
+            provider: String::from("google"),
+            id: String::from("01234567890"),
+            email: String::from("hellö@wörld.cöm"),
+        }));
+        roundtrip_authenticated(Context::Authenticated(AuthenticatedContext {
+            id: 79,
+            given_name: String::from("Jöhn"),
+            family_name: String::from("Döe"),
+            email: String::from("jöhn.döe@gmail.cöm"),
+            is_admin: false,
+        }));
     }
 }
