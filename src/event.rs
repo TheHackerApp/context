@@ -41,3 +41,44 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Context;
+    use crate::{error_test_cases, request};
+    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
+
+    #[tokio::test]
+    async fn valid() {
+        let mut parts = request! {
+            "Event-Slug" => "wafflehacks",
+            "Event-Organization-ID" => "5",
+        };
+
+        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        assert_eq!(context.event, "wafflehacks");
+        assert_eq!(context.organization_id, 5);
+    }
+
+    error_test_cases! {
+        missing_slug("Event-Organization-ID" => "5") => {
+            header: "event-slug",
+            reason: TypedHeaderRejectionReason::Missing,
+        };
+        slug_only_accepts_ascii("Event-Slug" => "öne", "Event-Organization-ID" => "5") => {
+            header: "event-slug",
+            reason: TypedHeaderRejectionReason::Error(_),
+        };
+    }
+
+    error_test_cases! {
+        missing_organization_id("event-slug" => "wafflehacks") => {
+            header: "event-organization-id",
+            reason: TypedHeaderRejectionReason::Missing,
+        };
+        invalid_organization_id("Event-Slug" => "testing", "Event-Organization-ID" => "af") => {
+            header: "event-organization-id",
+            reason: TypedHeaderRejectionReason::Error(_),
+        };
+    }
+}

@@ -10,3 +10,6 @@ axum = { version = "0.6", default-features = false, features = ["headers"] }
 headers = "0.3"
 http = "0.2"
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
