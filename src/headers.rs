@@ -1,6 +1,7 @@
 use headers::{Error, Header, HeaderName, HeaderValue};
 use std::{borrow::Borrow, iter, ops::Deref};
 
+static EVENT_DOMAIN: HeaderName = HeaderName::from_static("event-domain");
 static EVENT_SLUG: HeaderName = HeaderName::from_static("event-slug");
 static EVENT_ORGANIZATION_ID: HeaderName = HeaderName::from_static("event-organization-id");
 static USER_SESSION: HeaderName = HeaderName::from_static("user-session");
@@ -177,6 +178,11 @@ macro_rules! int_header {
             }
         }
     };
+}
+
+text_header! {
+    /// `Event-Domain` header containing a domain where the event can be found
+    ascii EventDomain, EVENT_DOMAIN
 }
 
 text_header! {
