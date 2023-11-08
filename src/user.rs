@@ -10,12 +10,13 @@ use axum::{
 use headers::HeaderMapExt;
 use http::{request::Parts, HeaderMap};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// Query parameters for fetching the user context
-#[derive(Debug, Deserialize)]
-pub struct Params {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Params<'p> {
     /// The session token
-    pub token: String,
+    pub token: Cow<'p, str>,
 }
 
 /// The user context response

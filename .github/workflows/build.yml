@@ -13,3 +13,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - run: cargo build --release
+
+  test:
+    name: Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo test

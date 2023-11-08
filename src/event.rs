@@ -7,12 +7,13 @@ use axum::{
 use headers::HeaderMapExt;
 use http::{request::Parts, HeaderMap};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// Query parameters for fetching the event context
-#[derive(Debug, Deserialize)]
-pub struct Params {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Params<'p> {
     /// The domain to find the event context for
-    pub domain: String,
+    pub domain: Cow<'p, str>,
 }
 
 /// The event context response
