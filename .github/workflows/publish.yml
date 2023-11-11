@@ -4,7 +4,7 @@ name: Publish
 on:  # yamllint disable-line rule:truthy
   push:
     branches:
-      - main
+      - release-fix-again
 
 jobs:
   release-plz:
