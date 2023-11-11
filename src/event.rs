@@ -16,7 +16,7 @@ use std::{borrow::Cow, fmt::Formatter};
 /// Query parameters for fetching the event context
 #[derive(Debug)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-enum Params<'p> {
+pub enum Params<'p> {
     /// Find event context for a domain
     Domain(Cow<'p, str>),
     /// Find event context for a slug
