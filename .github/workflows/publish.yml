@@ -3,27 +3,32 @@ name: Publish
 
 on:  # yamllint disable-line rule:truthy
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  shipyard:
-    name: Shipyard
-    runs-on: ubuntu-22.04
+  release-plz:
+    name: Release Plz
+    runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app_id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+          private_Key: ${{ secrets.RELEASE_PLZ_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: TheHackerApp/setup-rust@main
         with:
           ssh-private-key: ${{ secrets.SHIPYARD_SSH_KEY }}
           token: ${{ secrets.SHIPYARD_TOKEN }}
 
-      - run: cargo publish
-
-  release:
-    name: Release
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
+      - uses: MarcoInei/release-plz-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
