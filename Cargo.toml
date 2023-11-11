@@ -17,4 +17,5 @@ http = "0.2"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
+serde_urlencoded = "0.7"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
