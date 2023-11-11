@@ -6,14 +6,71 @@ use axum::{
 };
 use headers::HeaderMapExt;
 use http::{request::Parts, HeaderMap};
-use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use serde::{
+    de::{Error as _, MapAccess, Visitor},
+    ser::SerializeMap,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
+use std::{borrow::Cow, fmt::Formatter};
 
 /// Query parameters for fetching the event context
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Params<'p> {
-    /// The domain to find the event context for
-    pub domain: Cow<'p, str>,
+#[derive(Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+enum Params<'p> {
+    /// Find event context for a domain
+    Domain(Cow<'p, str>),
+    /// Find event context for a slug
+    Slug(Cow<'p, str>),
+}
+
+impl<'de> Deserialize<'de> for Params<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ParamsVisitor;
+
+        impl<'de> Visitor<'de> for ParamsVisitor {
+            type Value = Params<'de>;
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                formatter.write_str("")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                while let Some((key, value)) = map.next_entry::<&str, String>()? {
+                    match key {
+                        "slug" => return Ok(Params::Slug(Cow::Owned(value))),
+                        "domain" => return Ok(Params::Domain(Cow::Owned(value))),
+                        _ => continue,
+                    }
+                }
+
+                Err(A::Error::custom("missing one of: `domain`, `slug`"))
+            }
+        }
+
+        deserializer.deserialize_map(ParamsVisitor)
+    }
+}
+
+impl<'p> Serialize for Params<'p> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+
+        match self {
+            Self::Domain(domain) => map.serialize_entry("domain", domain)?,
+            Self::Slug(slug) => map.serialize_entry("slug", slug)?,
+        };
+
+        map.end()
+    }
 }
 
 /// The event context response
@@ -62,10 +119,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Context;
+    use super::{Context, Params};
     use crate::{error_test_cases, request};
     use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
     use http::Request;
+    use std::borrow::Cow;
 
     #[tokio::test]
     async fn from_request_valid() {
@@ -114,7 +172,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn roundtrip() {
+    async fn round_trip_context() {
         let context = Context {
             event: String::from("testing"),
             organization_id: 99,
@@ -126,5 +184,25 @@ mod tests {
 
         let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
         assert_eq!(context, roundtripped);
+    }
+
+    #[test]
+    fn round_trip_params_domain() {
+        let params = Params::Domain(Cow::Borrowed("wafflehacks.org"));
+        let encoded = serde_urlencoded::to_string(&params).unwrap();
+        assert_eq!(encoded, "domain=wafflehacks.org");
+
+        let decoded = serde_urlencoded::from_str(&encoded).unwrap();
+        assert_eq!(params, decoded);
+    }
+
+    #[test]
+    fn round_trip_params_slug() {
+        let params = Params::Slug(Cow::Borrowed("wafflehacks-2023"));
+        let encoded = serde_urlencoded::to_string(&params).unwrap();
+        assert_eq!(encoded, "slug=wafflehacks-2023");
+
+        let decoded = serde_urlencoded::from_str(&encoded).unwrap();
+        assert_eq!(params, decoded);
     }
 }
