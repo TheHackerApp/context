@@ -11,7 +11,7 @@ use serde::{
     ser::SerializeMap,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::{borrow::Cow, fmt::Formatter};
+use std::{borrow::Cow, fmt::Formatter, marker::PhantomData};
 
 /// Query parameters for fetching the event context
 #[derive(Debug)]
@@ -23,15 +23,19 @@ pub enum Params<'p> {
     Slug(Cow<'p, str>),
 }
 
-impl<'de> Deserialize<'de> for Params<'de> {
+impl<'de, 'p> Deserialize<'de> for Params<'p> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct ParamsVisitor;
+        #[derive(Default)]
+        struct ParamsVisitor<'de, 'p> {
+            marker: PhantomData<Params<'p>>,
+            lifetime: PhantomData<&'de ()>,
+        }
 
-        impl<'de> Visitor<'de> for ParamsVisitor {
-            type Value = Params<'de>;
+        impl<'de, 'p> Visitor<'de> for ParamsVisitor<'de, 'p> {
+            type Value = Params<'p>;
 
             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
                 formatter.write_str("")
@@ -53,7 +57,7 @@ impl<'de> Deserialize<'de> for Params<'de> {
             }
         }
 
-        deserializer.deserialize_map(ParamsVisitor)
+        deserializer.deserialize_map(ParamsVisitor::default())
     }
 }
 
@@ -121,7 +125,7 @@ where
 mod tests {
     use super::{Context, Params};
     use crate::{error_test_cases, request};
-    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
+    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts, Query};
     use http::Request;
     use std::borrow::Cow;
 
@@ -204,5 +208,33 @@ mod tests {
 
         let decoded = serde_urlencoded::from_str(&encoded).unwrap();
         assert_eq!(params, decoded);
+    }
+
+    #[tokio::test]
+    async fn params_domain_from_request() {
+        let request = http::request::Request::builder()
+            .uri("/context?domain=wafflehacks.org")
+            .body(())
+            .unwrap();
+        let (mut parts, _) = request.into_parts();
+
+        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(params, Params::Domain(Cow::Borrowed("wafflehacks.org")));
+    }
+
+    #[tokio::test]
+    async fn params_slug_from_request() {
+        let request = http::request::Request::builder()
+            .uri("/context?slug=wafflehacks-2023")
+            .body(())
+            .unwrap();
+        let (mut parts, _) = request.into_parts();
+
+        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(params, Params::Slug(Cow::Borrowed("wafflehacks-2023")));
     }
 }
