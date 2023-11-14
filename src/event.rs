@@ -1,10 +1,14 @@
+#[cfg(feature = "extract")]
 use crate::headers::{EventOrganizationId, EventSlug};
+#[cfg(feature = "extract")]
 use axum::{
     async_trait,
     extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
     RequestPartsExt,
 };
+#[cfg(feature = "extract")]
 use headers::HeaderMapExt;
+#[cfg(feature = "extract")]
 use http::{request::Parts, HeaderMap};
 use serde::{
     de::{Error as _, MapAccess, Visitor},
@@ -89,6 +93,7 @@ pub struct Context {
 
 impl Context {
     /// Serialize the context into request headers
+    #[cfg(feature = "extract")]
     pub fn into_headers(self) -> HeaderMap {
         let mut map = HeaderMap::with_capacity(2);
         self.write_headers(&mut map);
@@ -96,12 +101,14 @@ impl Context {
     }
 
     /// Write the context to request headers
+    #[cfg(feature = "extract")]
     pub fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(EventSlug::from(self.event));
         headers.typed_insert(EventOrganizationId::from(self.organization_id));
     }
 }
 
+#[cfg(feature = "extract")]
 #[async_trait]
 impl<S> FromRequestParts<S> for Context
 where
@@ -123,6 +130,32 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::Params;
+    use std::borrow::Cow;
+
+    #[test]
+    fn round_trip_params_domain() {
+        let params = Params::Domain(Cow::Borrowed("wafflehacks.org"));
+        let encoded = serde_urlencoded::to_string(&params).unwrap();
+        assert_eq!(encoded, "domain=wafflehacks.org");
+
+        let decoded = serde_urlencoded::from_str(&encoded).unwrap();
+        assert_eq!(params, decoded);
+    }
+
+    #[test]
+    fn round_trip_params_slug() {
+        let params = Params::Slug(Cow::Borrowed("wafflehacks-2023"));
+        let encoded = serde_urlencoded::to_string(&params).unwrap();
+        assert_eq!(encoded, "slug=wafflehacks-2023");
+
+        let decoded = serde_urlencoded::from_str(&encoded).unwrap();
+        assert_eq!(params, decoded);
+    }
+}
+
+#[cfg(all(test, feature = "extract"))]
+mod extract_tests {
     use super::{Context, Params};
     use crate::{error_test_cases, request};
     use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts, Query};
@@ -188,26 +221,6 @@ mod tests {
 
         let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
         assert_eq!(context, roundtripped);
-    }
-
-    #[test]
-    fn round_trip_params_domain() {
-        let params = Params::Domain(Cow::Borrowed("wafflehacks.org"));
-        let encoded = serde_urlencoded::to_string(&params).unwrap();
-        assert_eq!(encoded, "domain=wafflehacks.org");
-
-        let decoded = serde_urlencoded::from_str(&encoded).unwrap();
-        assert_eq!(params, decoded);
-    }
-
-    #[test]
-    fn round_trip_params_slug() {
-        let params = Params::Slug(Cow::Borrowed("wafflehacks-2023"));
-        let encoded = serde_urlencoded::to_string(&params).unwrap();
-        assert_eq!(encoded, "slug=wafflehacks-2023");
-
-        let decoded = serde_urlencoded::from_str(&encoded).unwrap();
-        assert_eq!(params, decoded);
     }
 
     #[tokio::test]

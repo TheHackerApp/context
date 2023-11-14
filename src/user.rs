@@ -1,13 +1,17 @@
+#[cfg(feature = "extract")]
 use crate::headers::{
     OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail, UserFamilyName, UserGivenName,
     UserId, UserIsAdmin, UserSession,
 };
+#[cfg(feature = "extract")]
 use axum::{
     async_trait,
     extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
     RequestPartsExt,
 };
+#[cfg(feature = "extract")]
 use headers::HeaderMapExt;
+#[cfg(feature = "extract")]
 use http::{request::Parts, HeaderMap};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -37,6 +41,7 @@ pub enum Context {
 
 impl Context {
     /// Serialize the context into request headers
+    #[cfg(feature = "extract")]
     pub fn into_headers(self) -> HeaderMap {
         let mut map = HeaderMap::with_capacity(1);
         self.write_headers(&mut map);
@@ -44,6 +49,7 @@ impl Context {
     }
 
     /// Write the context to request headers
+    #[cfg(feature = "extract")]
     pub fn write_headers(self, headers: &mut HeaderMap) {
         match self {
             Context::Unauthenticated => headers.typed_insert(UserSession::Unauthenticated),
@@ -60,6 +66,7 @@ impl Context {
     }
 }
 
+#[cfg(feature = "extract")]
 #[async_trait]
 impl<S> FromRequestParts<S> for Context
 where
@@ -97,6 +104,7 @@ pub struct RegistrationNeededContext {
 
 impl RegistrationNeededContext {
     /// Write the context to request headers
+    #[cfg(feature = "extract")]
     fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(OAuthProviderSlug::from(self.provider));
         headers.typed_insert(OAuthUserId::from(self.id));
@@ -104,6 +112,7 @@ impl RegistrationNeededContext {
     }
 }
 
+#[cfg(feature = "extract")]
 #[async_trait]
 impl<S> FromRequestParts<S> for RegistrationNeededContext
 where
@@ -142,6 +151,7 @@ pub struct AuthenticatedContext {
 
 impl AuthenticatedContext {
     /// Write the context to request headers
+    #[cfg(feature = "extract")]
     fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(UserId::from(self.id));
         headers.typed_insert(UserGivenName::from(self.given_name));
@@ -151,6 +161,7 @@ impl AuthenticatedContext {
     }
 }
 
+#[cfg(feature = "extract")]
 #[async_trait]
 impl<S> FromRequestParts<S> for AuthenticatedContext
 where
@@ -175,7 +186,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "extract"))]
 mod tests {
     use super::{AuthenticatedContext, Context, RegistrationNeededContext};
     use crate::{error_test_cases, request};
