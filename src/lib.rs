@@ -1,9 +1,11 @@
 /// Context information from the `events` service
 pub mod event;
+#[cfg(feature = "extract")]
 mod headers;
 /// Context information from the `identity` service
 pub mod user;
 
+#[cfg(feature = "extract")]
 pub use headers::*;
 
 #[cfg(test)]

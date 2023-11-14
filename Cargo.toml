@@ -11,12 +11,16 @@ publish = ["wafflehacks"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { version = "0.6", default-features = false, features = ["headers"] }
-headers = "0.3"
-http = "0.2"
+axum = { version = "0.6", default-features = false, features = ["headers"], optional = true }
+headers = { version = "0.3", optional = true }
+http = { version = "0.2", optional = true }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 axum = { version = "0.6", default-features = false, features = ["headers", "query"] }
 serde_urlencoded = "0.7"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+[features]
+default = []
+extract = ["axum", "headers", "http"]
