@@ -1,3 +1,6 @@
+/// Pre-condition checks for use with [`async-graphql`](https://docs.rs/async-graphql)
+#[cfg(feature = "graphql")]
+pub mod checks;
 /// Context information from the `events` service
 pub mod event;
 #[cfg(feature = "extract")]
@@ -5,6 +8,8 @@ mod headers;
 /// Context information from the `identity` service
 pub mod user;
 
+#[cfg(feature = "graphql")]
+pub use checks::guard;
 #[cfg(feature = "extract")]
 pub use headers::*;
 
