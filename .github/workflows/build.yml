@@ -5,24 +5,37 @@ on:  # yamllint disable-line rule:truthy
   - push
 
 jobs:
-  default:
-    name: Library (no features)
+  generate-matrix:
+    name: Generate Build Matrix
     runs-on: ubuntu-22.04
+    outputs:
+      features: ${{ steps.generate-matrix.outputs.features }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Dasel
+        run: |
+          mkdir -p $HOME/.local/bin
+          DOWNLOAD_URL=$(gh api /repos/tomwright/dasel/releases/latest -q '.assets[] | select(.name == "dasel_linux_amd64") | .browser_download_url')
+          curl -sSLf $DOWNLOAD_URL -o $HOME/.local/bin/dasel
+          chmod +x $HOME/.local/bin/dasel
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-      - run: cargo build --release
+      - name: Generate matrix from Cargo features
+        id: generate-matrix
+        run: |
+          FEATURES=$(dasel -f Cargo.toml -w json --pretty=false '.features.keys()')
+          echo "features=$FEATURES" >> "$GITHUB_OUTPUT"
 
-  feature:
+  library:
     name: Library (${{ matrix.feature }})
     runs-on: ubuntu-22.04
+    needs: [generate-matrix]
     strategy:
       fail-fast: false
       matrix:
-        feature:
-          - extract
-          - graphql
+        feature: ${{ fromJSON(needs.generate-matrix.outputs.features) }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -30,23 +43,13 @@ jobs:
       - run: cargo build --release -F ${{ matrix.feature }}
 
   test:
-    name: Test
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - run: cargo test --all-features
-
-  test-feature:
     name: Test (${{ matrix.feature }})
     runs-on: ubuntu-22.04
+    needs: [generate-matrix]
     strategy:
       fail-fast: false
       matrix:
-        feature:
-          - extract
-          - graphql
+        feature: ${{ fromJSON(needs.generate-matrix.outputs.features) }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
