@@ -8,6 +8,7 @@ static USER_SESSION: HeaderName = HeaderName::from_static("user-session");
 static OAUTH_PROVIDER_SLUG: HeaderName = HeaderName::from_static("oauth-provider-slug");
 static OAUTH_USER_ID: HeaderName = HeaderName::from_static("oauth-user-id");
 static OAUTH_USER_EMAIL: HeaderName = HeaderName::from_static("oauth-user-email");
+static REQUEST_SCOPE: HeaderName = HeaderName::from_static("request-scope");
 static USER_ID: HeaderName = HeaderName::from_static("user-id");
 static USER_GIVEN_NAME: HeaderName = HeaderName::from_static("user-given-name");
 static USER_FAMILY_NAME: HeaderName = HeaderName::from_static("user-family-name");
@@ -257,6 +258,52 @@ text_header! {
 text_header! {
     /// `OAuth-User-Email` header containing the user's email according to the OAuth provider
     utf8 OAuthUserEmail, OAUTH_USER_EMAIL
+}
+
+/// `Request-Scope` header containing the desired scope for the request
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestScope {
+    /// A request with no restrictions on data access
+    Admin,
+    /// A request restricted to the current user
+    ///
+    /// This includes actions like authenticating and selecting an event
+    User,
+    /// A request restricted to the current event
+    ///
+    /// This includes actions like managing an event or submitting an application
+    Event,
+}
+
+impl Header for RequestScope {
+    fn name() -> &'static HeaderName {
+        &REQUEST_SCOPE
+    }
+
+    fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+    where
+        Self: Sized,
+        I: Iterator<Item = &'i HeaderValue>,
+    {
+        let value = values.next().ok_or_else(Error::invalid)?;
+
+        match value.as_bytes() {
+            b"admin" => Ok(Self::Admin),
+            b"user" => Ok(Self::User),
+            b"event" => Ok(Self::Event),
+            _ => Err(Error::invalid()),
+        }
+    }
+
+    fn encode<E: Extend<HeaderValue>>(&self, values: &mut E) {
+        let value = HeaderValue::from_static(match self {
+            Self::Admin => "admin",
+            Self::User => "user",
+            Self::Event => "event",
+        });
+
+        values.extend(iter::once(value))
+    }
 }
 
 text_header! {
