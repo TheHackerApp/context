@@ -12,13 +12,13 @@ publish = ["wafflehacks"]
 
 [dependencies]
 async-graphql = { version = "6.0", default-features = false, optional = true }
-axum = { version = "0.6", default-features = false, features = ["headers"], optional = true }
+axum = { version = "0.7", default-features = false, features = ["headers"], optional = true }
 headers = { version = "0.3", optional = true }
 http = { version = "0.2", optional = true }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-axum = { version = "0.6", default-features = false, features = ["headers", "query"] }
+axum = { version = "0.7", default-features = false, features = ["headers", "query"] }
 serde_urlencoded = "0.7"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
