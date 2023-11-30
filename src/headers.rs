@@ -1,4 +1,4 @@
-use headers::{Error, Header, HeaderName, HeaderValue};
+use axum_extra::headers::{Error, Header, HeaderName, HeaderValue};
 use std::{borrow::Borrow, iter, ops::Deref};
 
 static EVENT_DOMAIN: HeaderName = HeaderName::from_static("event-domain");

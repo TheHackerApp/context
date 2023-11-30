@@ -21,7 +21,7 @@ mod test_util {
             $( $name:expr => $value:expr ),* $(,)?
         ) => {
             {
-                let request = ::http::request::Request::builder()
+                let request = ::axum::http::request::Request::builder()
                     $( .header($name, $value) )*
                     .body(())
                     .unwrap();
