@@ -6,15 +6,13 @@ use crate::headers::{
 #[cfg(feature = "extract")]
 use axum::{
     async_trait,
-    extract::FromRequestParts,
-    http::{request::Parts, HeaderMap},
+    extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
     RequestPartsExt,
 };
 #[cfg(feature = "extract")]
-use axum_extra::{
-    headers::HeaderMapExt,
-    typed_header::{TypedHeader, TypedHeaderRejection},
-};
+use headers::HeaderMapExt;
+#[cfg(feature = "extract")]
+use http::{request::Parts, HeaderMap};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
@@ -192,8 +190,8 @@ where
 mod tests {
     use super::{AuthenticatedContext, Context, RegistrationNeededContext};
     use crate::{error_test_cases, request};
-    use axum::{extract::FromRequestParts, http::Request};
-    use axum_extra::typed_header::TypedHeaderRejectionReason;
+    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
+    use http::Request;
 
     #[tokio::test]
     async fn from_request_valid_unauthenticated() {

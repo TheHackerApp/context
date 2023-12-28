@@ -3,15 +3,13 @@ use crate::headers::{EventOrganizationId, EventSlug, RequestScope};
 #[cfg(feature = "extract")]
 use axum::{
     async_trait,
-    extract::FromRequestParts,
-    http::{request::Parts, HeaderMap},
-    RequestPartsExt,
+    extract::{rejection::TypedHeaderRejection, FromRequestParts},
+    RequestPartsExt, TypedHeader,
 };
 #[cfg(feature = "extract")]
-use axum_extra::{
-    headers::HeaderMapExt,
-    typed_header::{TypedHeader, TypedHeaderRejection},
-};
+use headers::HeaderMapExt;
+#[cfg(feature = "extract")]
+use http::{request::Parts, HeaderMap};
 use serde::{
     de::{Error as _, MapAccess, Visitor},
     ser::SerializeMap,
@@ -207,16 +205,13 @@ mod tests {
 mod extract_tests {
     use super::{Context, EventContext, Params};
     use crate::{error_test_cases, request};
-    use axum::{
-        extract::{FromRequestParts, Query},
-        http::Request,
-    };
-    use axum_extra::typed_header::TypedHeaderRejectionReason;
+    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts, Query};
+    use http::Request;
     use std::borrow::Cow;
 
     #[tokio::test]
     async fn params_domain_from_request() {
-        let request = Request::builder()
+        let request = http::request::Request::builder()
             .uri("/context?domain=wafflehacks.org")
             .body(())
             .unwrap();
@@ -230,7 +225,7 @@ mod extract_tests {
 
     #[tokio::test]
     async fn params_slug_from_request() {
-        let request = Request::builder()
+        let request = http::request::Request::builder()
             .uri("/context?slug=wafflehacks-2023")
             .body(())
             .unwrap();
