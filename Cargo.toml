@@ -14,7 +14,7 @@ publish = ["wafflehacks"]
 async-graphql = { version = "6.0", default-features = false, optional = true }
 axum = { version = "0.6", default-features = false, features = ["headers"], optional = true }
 headers = { version = "0.3", optional = true }
-http = { version = "0.2", optional = true }
+http = { version = "1.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
