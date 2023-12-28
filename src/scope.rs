@@ -84,6 +84,7 @@ impl<'p> Serialize for Params<'p> {
 /// The scope response
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
+#[serde(rename_all = "lowercase", tag = "kind")]
 pub enum Context {
     /// A request with global scope
     Admin,
@@ -177,7 +178,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Params;
+    use super::{Context, EventContext, Params};
     use std::borrow::Cow;
 
     #[test]
@@ -198,6 +199,31 @@ mod tests {
 
         let decoded = serde_urlencoded::from_str(&encoded).unwrap();
         assert_eq!(params, decoded);
+    }
+
+    #[test]
+    fn context_admin_serializes_as_tagged_union() {
+        let serialized = serde_json::to_string(&Context::Admin).unwrap();
+        assert_eq!(serialized, r#"{"kind":"admin"}"#);
+    }
+
+    #[test]
+    fn context_user_serializes_as_tagged_union() {
+        let serialized = serde_json::to_string(&Context::User).unwrap();
+        assert_eq!(serialized, r#"{"kind":"user"}"#);
+    }
+
+    #[test]
+    fn context_event_serializes_as_tagged_union() {
+        let ctx = Context::Event(EventContext {
+            event: String::from("testing"),
+            organization_id: 45,
+        });
+        let serialized = serde_json::to_string(&ctx).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"kind":"event","event":"testing","organization_id":45}"#
+        );
     }
 }
 
