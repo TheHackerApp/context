@@ -10,6 +10,7 @@ use axum::{
         rejection::{TypedHeaderRejection, TypedHeaderRejectionReason},
         FromRequestParts,
     },
+    response::{IntoResponse, Response},
     RequestPartsExt, TypedHeader,
 };
 #[cfg(feature = "extract")]
@@ -173,6 +174,13 @@ where
                 Self::Event(EventContext::from_request_parts(parts, state).await?)
             }
         })
+    }
+}
+
+#[cfg(feature = "extract")]
+impl IntoResponse for Context {
+    fn into_response(self) -> Response {
+        self.into_headers().into_response()
     }
 }
 
