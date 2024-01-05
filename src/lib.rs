@@ -2,6 +2,8 @@
 #[cfg(feature = "graphql")]
 pub mod checks;
 #[cfg(feature = "extract")]
+mod errors;
+#[cfg(feature = "extract")]
 mod headers;
 /// Context information from the `events` service
 pub mod scope;
@@ -10,6 +12,8 @@ pub mod user;
 
 #[cfg(feature = "graphql")]
 pub use checks::guard;
+#[cfg(feature = "extract")]
+pub use errors::{Error, Reason};
 #[cfg(feature = "extract")]
 pub use headers::*;
 

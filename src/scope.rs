@@ -1,15 +1,21 @@
 #[cfg(feature = "extract")]
-use crate::headers::{EventOrganizationId, EventSlug, RequestScope};
+use crate::{
+    errors::{Error, Reason},
+    headers::{EventDomain, EventOrganizationId, EventSlug, RequestScope},
+};
 #[cfg(feature = "extract")]
 use axum::{
     async_trait,
-    extract::{rejection::TypedHeaderRejection, FromRequestParts},
+    extract::{
+        rejection::{TypedHeaderRejection, TypedHeaderRejectionReason},
+        FromRequestParts,
+    },
     RequestPartsExt, TypedHeader,
 };
 #[cfg(feature = "extract")]
-use headers::HeaderMapExt;
+use headers::{Header, HeaderMap, HeaderMapExt};
 #[cfg(feature = "extract")]
-use http::{request::Parts, HeaderMap};
+use http::request::Parts;
 use serde::{
     de::{Error as _, MapAccess, Visitor},
     ser::SerializeMap,
@@ -62,6 +68,39 @@ impl<'de, 'p> Deserialize<'de> for Params<'p> {
         }
 
         deserializer.deserialize_map(ParamsVisitor::default())
+    }
+}
+
+#[cfg(feature = "extract")]
+#[async_trait]
+impl<S> FromRequestParts<S> for Params<'static>
+where
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let slug = TypedHeader::<EventSlug>::from_request_parts(parts, state).await;
+        let domain = TypedHeader::<EventDomain>::from_request_parts(parts, state).await;
+
+        match (slug, domain) {
+            (Err(slug), Err(domain)) => {
+                let slug_missing = matches!(slug.reason(), TypedHeaderRejectionReason::Missing);
+                let domain_missing = matches!(domain.reason(), TypedHeaderRejectionReason::Missing);
+
+                // prioritizes decode errors over missing errors
+                Err(match (slug_missing, domain_missing) {
+                    (true, true) => Error {
+                        names: vec![EventSlug::name(), EventDomain::name()],
+                        reason: Reason::Missing,
+                    },
+                    (true, false) => domain.into(),
+                    (false, _) => slug.into(),
+                })
+            }
+            (Ok(TypedHeader(slug)), _) => Ok(Params::Slug(Cow::Owned(slug.into_inner()))),
+            (_, Ok(TypedHeader(domain))) => Ok(Params::Domain(Cow::Owned(domain.into_inner()))),
+        }
     }
 }
 

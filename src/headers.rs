@@ -14,6 +14,7 @@ static USER_GIVEN_NAME: HeaderName = HeaderName::from_static("user-given-name");
 static USER_FAMILY_NAME: HeaderName = HeaderName::from_static("user-family-name");
 static USER_EMAIL: HeaderName = HeaderName::from_static("user-email");
 static USER_IS_ADMIN: HeaderName = HeaderName::from_static("user-is-admin");
+static USER_TOKEN: HeaderName = HeaderName::from_static("user-token");
 
 macro_rules! expose_inner {
     ( $target:ident ( $as:ty ) ) => {
@@ -319,6 +320,11 @@ text_header! {
 text_header! {
     /// `User-Email` header containing the user's email
     utf8 UserEmail, USER_EMAIL
+}
+
+text_header! {
+    /// `User-Token` header containing the user's session token
+    ascii UserToken, USER_TOKEN
 }
 
 int_header! {

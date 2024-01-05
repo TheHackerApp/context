@@ -1,7 +1,10 @@
 #[cfg(feature = "extract")]
-use crate::headers::{
-    OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail, UserFamilyName, UserGivenName,
-    UserId, UserIsAdmin, UserSession,
+use crate::{
+    errors::Error,
+    headers::{
+        OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail, UserFamilyName, UserGivenName,
+        UserId, UserIsAdmin, UserSession, UserToken,
+    },
 };
 #[cfg(feature = "extract")]
 use axum::{
@@ -21,6 +24,22 @@ use std::borrow::Cow;
 pub struct Params<'p> {
     /// The session token
     pub token: Cow<'p, str>,
+}
+
+#[cfg(feature = "extract")]
+#[async_trait]
+impl<S> FromRequestParts<S> for Params<'static>
+where
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let TypedHeader(token) = TypedHeader::<UserToken>::from_request_parts(parts, state).await?;
+        Ok(Params {
+            token: Cow::Owned(token.into_inner()),
+        })
+    }
 }
 
 /// The user context response
