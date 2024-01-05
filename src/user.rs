@@ -7,6 +7,7 @@ use crate::headers::{
 use axum::{
     async_trait,
     extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
+    response::{IntoResponse, Response},
     RequestPartsExt,
 };
 #[cfg(feature = "extract")]
@@ -87,6 +88,13 @@ where
                 Self::Authenticated(AuthenticatedContext::from_request_parts(parts, state).await?)
             }
         })
+    }
+}
+
+#[cfg(feature = "extract")]
+impl IntoResponse for Context {
+    fn into_response(self) -> Response {
+        self.into_headers().into_response()
     }
 }
 
