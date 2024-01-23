@@ -1,5 +1,13 @@
-use headers::{Error, Header, HeaderName, HeaderValue};
-use std::{borrow::Borrow, iter, ops::Deref};
+#[cfg(feature = "axum")]
+use axum_core::response::{IntoResponse, Response};
+use headers::{Header, HeaderMapExt, HeaderName, HeaderValue};
+use http::HeaderMap;
+use std::{
+    borrow::Borrow,
+    fmt::{Display, Formatter},
+    iter,
+    ops::Deref,
+};
 
 static EVENT_DOMAIN: HeaderName = HeaderName::from_static("event-domain");
 static EVENT_SLUG: HeaderName = HeaderName::from_static("event-slug");
@@ -14,6 +22,73 @@ static USER_GIVEN_NAME: HeaderName = HeaderName::from_static("user-given-name");
 static USER_FAMILY_NAME: HeaderName = HeaderName::from_static("user-family-name");
 static USER_EMAIL: HeaderName = HeaderName::from_static("user-email");
 static USER_IS_ADMIN: HeaderName = HeaderName::from_static("user-is-admin");
+
+#[derive(Debug)]
+pub struct Error {
+    /// Name of the header that cased the error
+    pub name: &'static HeaderName,
+    /// Reason why the header extraction failed
+    pub kind: ErrorKind,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            ErrorKind::Missing => write!(f, "Header of type `{}` was missing", self.name),
+            ErrorKind::Error(_) => write!(f, "Header of type `{}` was invalid", self.name),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.kind {
+            ErrorKind::Missing => None,
+            ErrorKind::Error(e) => Some(e),
+        }
+    }
+}
+
+#[cfg(feature = "axum")]
+impl IntoResponse for Error {
+    fn into_response(self) -> Response {
+        let mut headers = HeaderMap::with_capacity(1);
+        headers.typed_insert(headers::ContentType::json());
+
+        (
+            http::StatusCode::BAD_REQUEST,
+            headers,
+            format!(r#"{{"message":"{self}"}}"#),
+        )
+            .into_response()
+    }
+}
+
+#[derive(Debug)]
+pub enum ErrorKind {
+    /// The header was missing from the request
+    Missing,
+    /// An error occurred when parsing the header from the request
+    Error(headers::Error),
+}
+
+/// Extract the provided header from the map
+pub(crate) fn extract<H>(headers: &HeaderMap) -> Result<H, Error>
+where
+    H: Header,
+{
+    match headers.typed_try_get() {
+        Ok(Some(h)) => Ok(h),
+        Ok(None) => Err(Error {
+            name: H::name(),
+            kind: ErrorKind::Missing,
+        }),
+        Err(e) => Err(Error {
+            name: H::name(),
+            kind: ErrorKind::Error(e),
+        }),
+    }
+}
 
 macro_rules! expose_inner {
     ( $target:ident ( $as:ty ) ) => {
@@ -64,12 +139,12 @@ macro_rules! text_header {
                 &$header_name
             }
 
-            fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+            fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
             where
                 I: Iterator<Item = &'i HeaderValue>,
             {
-                let value = values.next().ok_or_else(Error::invalid)?;
-                let decoded = value.to_str().map_err(|_| Error::invalid())?;
+                let value = values.next().ok_or_else(headers::Error::invalid)?;
+                let decoded = value.to_str().map_err(|_| headers::Error::invalid())?;
 
                 Ok(Self(decoded.to_owned()))
             }
@@ -97,14 +172,14 @@ macro_rules! text_header {
                 &$header_name
             }
 
-            fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+            fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
             where
                 I: Iterator<Item = &'i HeaderValue>,
             {
-                let value = values.next().ok_or_else(Error::invalid)?.as_bytes();
-                let decoded = String::from_utf8(value.to_vec()).map_err(|_| Error::invalid())?;
+                let value = values.next().ok_or_else(headers::Error::invalid)?.as_bytes();
+                let decoded = std::str::from_utf8(&value).map_err(|_| headers::Error::invalid())?;
 
-                Ok(Self(decoded))
+                Ok(Self(decoded.to_owned()))
             }
 
             fn encode<E>(&self, values: &mut E)
@@ -156,16 +231,16 @@ macro_rules! int_header {
                 &$header_name
             }
 
-            fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+            fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
             where
                 I: Iterator<Item = &'i HeaderValue>,
             {
-                let value = values.next().ok_or_else(Error::invalid)?;
+                let value = values.next().ok_or_else(headers::Error::invalid)?;
                 let decoded = value
                     .to_str()
-                    .map_err(|_| Error::invalid())?
+                    .map_err(|_| headers::Error::invalid())?
                     .parse()
-                    .map_err(|_| Error::invalid())?;
+                    .map_err(|_| headers::Error::invalid())?;
 
                 Ok(Self(decoded))
             }
@@ -214,18 +289,18 @@ impl Header for UserSession {
         &USER_SESSION
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         I: Iterator<Item = &'i HeaderValue>,
     {
-        let value = values.next().ok_or_else(Error::invalid)?;
+        let value = values.next().ok_or_else(headers::Error::invalid)?;
 
         match value.as_bytes() {
             b"unauthenticated" => Ok(Self::Unauthenticated),
             b"oauth" => Ok(Self::OAuth),
             b"registration-needed" => Ok(Self::RegistrationNeeded),
             b"authenticated" => Ok(Self::Authenticated),
-            _ => Err(Error::invalid()),
+            _ => Err(headers::Error::invalid()),
         }
     }
 
@@ -280,18 +355,18 @@ impl Header for RequestScope {
         &REQUEST_SCOPE
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>,
     {
-        let value = values.next().ok_or_else(Error::invalid)?;
+        let value = values.next().ok_or_else(headers::Error::invalid)?;
 
         match value.as_bytes() {
             b"admin" => Ok(Self::Admin),
             b"user" => Ok(Self::User),
             b"event" => Ok(Self::Event),
-            _ => Err(Error::invalid()),
+            _ => Err(headers::Error::invalid()),
         }
     }
 
@@ -343,16 +418,16 @@ impl Header for UserIsAdmin {
         &USER_IS_ADMIN
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         I: Iterator<Item = &'i HeaderValue>,
     {
-        let value = values.next().ok_or_else(Error::invalid)?;
+        let value = values.next().ok_or_else(headers::Error::invalid)?;
 
         match value.as_bytes() {
             b"true" => Ok(Self(true)),
             b"false" => Ok(Self(false)),
-            _ => Err(Error::invalid()),
+            _ => Err(headers::Error::invalid()),
         }
     }
 

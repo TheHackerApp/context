@@ -1,7 +1,7 @@
 /// Pre-condition checks for use with [`async-graphql`](https://docs.rs/async-graphql)
 #[cfg(feature = "graphql")]
 pub mod checks;
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 mod headers;
 /// Context information from the `events` service
 pub mod scope;
@@ -10,25 +10,23 @@ pub mod user;
 
 #[cfg(feature = "graphql")]
 pub use checks::guard;
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 pub use headers::*;
 
 #[cfg(test)]
 mod test_util {
     #[macro_export]
-    macro_rules! request {
+    macro_rules! headers {
+        () => {
+            ::http::header::HeaderMap::with_capacity(0)
+        };
         (
             $( $name:expr => $value:expr ),* $(,)?
-        ) => {
-            {
-                let request = ::http::request::Request::builder()
-                    $( .header($name, $value) )*
-                    .body(())
-                    .unwrap();
-                let (parts, _) = request.into_parts();
-                parts
-            }
-        };
+        ) => {{
+            let mut headers = ::http::header::HeaderMap::new();
+            $(headers.insert($name, ::http::header::HeaderValue::try_from($value).unwrap());)*
+            headers
+        }};
     }
 
     #[macro_export]
@@ -36,19 +34,19 @@ mod test_util {
         ( $(
             $name:ident ( $( $header_name:expr => $header_value:expr ),* $(,)? ) => {
                 header: $header:expr,
-                reason: $reason:pat,
+                kind: $kind:pat,
             }
         );+ $(;)? ) => {
             $(
-                #[tokio::test]
-                async fn $name() {
-                    let mut parts = request! {
+                #[test]
+                fn $name() {
+                    let headers = $crate::headers! {
                         $( $header_name => $header_value, )*
                     };
 
-                    let err = Context::from_request_parts(&mut parts, &()).await.unwrap_err();
-                    assert_eq!(err.name().as_str(), $header);
-                    assert!(matches!(*err.reason(), $reason));
+                    let err = Context::try_from(&headers).unwrap_err();
+                    assert_eq!(err.name.as_str(), $header);
+                    assert!(matches!(err.kind, $kind));
                 }
             )+
         };
