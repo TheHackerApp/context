@@ -1,19 +1,19 @@
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 use crate::headers::{
-    OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail, UserFamilyName, UserGivenName,
-    UserId, UserIsAdmin, UserSession,
+    extract, OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail, UserFamilyName,
+    UserGivenName, UserId, UserIsAdmin, UserSession,
 };
-#[cfg(feature = "extract")]
-use axum::{
-    async_trait,
-    extract::{rejection::TypedHeaderRejection, FromRequestParts, TypedHeader},
+#[cfg(feature = "axum")]
+use axum_core::{
+    extract::FromRequestParts,
     response::{IntoResponse, Response},
-    RequestPartsExt,
 };
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 use headers::HeaderMapExt;
-#[cfg(feature = "extract")]
-use http::{request::Parts, HeaderMap};
+#[cfg(feature = "axum")]
+use http::request::Parts;
+#[cfg(feature = "headers")]
+use http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
@@ -40,9 +40,9 @@ pub enum Context {
     Authenticated(AuthenticatedContext),
 }
 
+#[cfg(feature = "headers")]
 impl Context {
     /// Serialize the context into request headers
-    #[cfg(feature = "extract")]
     pub fn into_headers(self) -> HeaderMap {
         let mut map = HeaderMap::with_capacity(1);
         self.write_headers(&mut map);
@@ -50,7 +50,6 @@ impl Context {
     }
 
     /// Write the context to request headers
-    #[cfg(feature = "extract")]
     pub fn write_headers(self, headers: &mut HeaderMap) {
         match self {
             Context::Unauthenticated => headers.typed_insert(UserSession::Unauthenticated),
@@ -67,31 +66,42 @@ impl Context {
     }
 }
 
-#[cfg(feature = "extract")]
-#[async_trait]
-impl<S> FromRequestParts<S> for Context
-where
-    S: Send + Sync,
-{
-    type Rejection = TypedHeaderRejection;
+#[cfg(feature = "headers")]
+impl TryFrom<&HeaderMap> for Context {
+    type Error = crate::Error;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let TypedHeader(session) = parts.extract::<TypedHeader<UserSession>>().await?;
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let session = extract::<UserSession>(headers)?;
 
         Ok(match session {
             UserSession::Unauthenticated => Self::Unauthenticated,
             UserSession::OAuth => Self::OAuth,
-            UserSession::RegistrationNeeded => Self::RegistrationNeeded(
-                RegistrationNeededContext::from_request_parts(parts, state).await?,
-            ),
+            UserSession::RegistrationNeeded => {
+                let context = RegistrationNeededContext::try_from(headers)?;
+                Self::RegistrationNeeded(context)
+            }
             UserSession::Authenticated => {
-                Self::Authenticated(AuthenticatedContext::from_request_parts(parts, state).await?)
+                let context = AuthenticatedContext::try_from(headers)?;
+                Self::Authenticated(context)
             }
         })
     }
 }
 
-#[cfg(feature = "extract")]
+#[cfg(feature = "axum")]
+#[async_trait::async_trait]
+impl<S> FromRequestParts<S> for Context
+where
+    S: Send + Sync,
+{
+    type Rejection = crate::Error;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Self::try_from(&parts.headers)
+    }
+}
+
+#[cfg(feature = "axum")]
 impl IntoResponse for Context {
     fn into_response(self) -> Response {
         self.into_headers().into_response()
@@ -110,9 +120,9 @@ pub struct RegistrationNeededContext {
     pub email: String,
 }
 
+#[cfg(feature = "headers")]
 impl RegistrationNeededContext {
     /// Write the context to request headers
-    #[cfg(feature = "extract")]
     fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(OAuthProviderSlug::from(self.provider));
         headers.typed_insert(OAuthUserId::from(self.id));
@@ -120,18 +130,14 @@ impl RegistrationNeededContext {
     }
 }
 
-#[cfg(feature = "extract")]
-#[async_trait]
-impl<S> FromRequestParts<S> for RegistrationNeededContext
-where
-    S: Send + Sync,
-{
-    type Rejection = TypedHeaderRejection;
+#[cfg(feature = "headers")]
+impl TryFrom<&HeaderMap> for RegistrationNeededContext {
+    type Error = crate::Error;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let TypedHeader(provider) = parts.extract::<TypedHeader<OAuthProviderSlug>>().await?;
-        let TypedHeader(id) = parts.extract::<TypedHeader<OAuthUserId>>().await?;
-        let TypedHeader(email) = parts.extract::<TypedHeader<OAuthUserEmail>>().await?;
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let provider = extract::<OAuthProviderSlug>(headers)?;
+        let id = extract::<OAuthUserId>(headers)?;
+        let email = extract::<OAuthUserEmail>(headers)?;
 
         Ok(Self {
             provider: provider.into_inner(),
@@ -157,9 +163,9 @@ pub struct AuthenticatedContext {
     pub is_admin: bool,
 }
 
+#[cfg(feature = "headers")]
 impl AuthenticatedContext {
     /// Write the context to request headers
-    #[cfg(feature = "extract")]
     fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(UserId::from(self.id));
         headers.typed_insert(UserGivenName::from(self.given_name));
@@ -169,20 +175,16 @@ impl AuthenticatedContext {
     }
 }
 
-#[cfg(feature = "extract")]
-#[async_trait]
-impl<S> FromRequestParts<S> for AuthenticatedContext
-where
-    S: Send + Sync,
-{
-    type Rejection = TypedHeaderRejection;
+#[cfg(feature = "headers")]
+impl TryFrom<&HeaderMap> for AuthenticatedContext {
+    type Error = crate::Error;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let TypedHeader(id) = parts.extract::<TypedHeader<UserId>>().await?;
-        let TypedHeader(given_name) = parts.extract::<TypedHeader<UserGivenName>>().await?;
-        let TypedHeader(family_name) = parts.extract::<TypedHeader<UserFamilyName>>().await?;
-        let TypedHeader(email) = parts.extract::<TypedHeader<UserEmail>>().await?;
-        let TypedHeader(is_admin) = parts.extract::<TypedHeader<UserIsAdmin>>().await?;
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let id = extract::<UserId>(headers)?;
+        let given_name = extract::<UserGivenName>(headers)?;
+        let family_name = extract::<UserFamilyName>(headers)?;
+        let email = extract::<UserEmail>(headers)?;
+        let is_admin = extract::<UserIsAdmin>(headers)?;
 
         Ok(Self {
             id: id.into_inner(),
@@ -194,43 +196,41 @@ where
     }
 }
 
-#[cfg(all(test, feature = "extract"))]
+#[cfg(all(test, feature = "headers"))]
 mod tests {
     use super::{AuthenticatedContext, Context, RegistrationNeededContext};
-    use crate::{error_test_cases, request};
-    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts};
-    use http::Request;
+    use crate::{error_test_cases, headers, headers::ErrorKind};
 
-    #[tokio::test]
-    async fn from_request_valid_unauthenticated() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_valid_unauthenticated() {
+        let headers = headers! {
             "User-Session" => "unauthenticated",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         assert!(matches!(context, Context::Unauthenticated));
     }
 
-    #[tokio::test]
-    async fn from_request_valid_oauth() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_valid_oauth() {
+        let headers = headers! {
             "User-Session" => "oauth",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         assert!(matches!(context, Context::OAuth));
     }
 
-    #[tokio::test]
-    async fn from_request_valid_registration_needed() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_valid_registration_needed() {
+        let headers = headers! {
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-ID" => "1234567890",
             "OAuth-User-Email" => "hello@world.com",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::RegistrationNeeded(context) = context else {
             panic!("expected Context::RegistrationNeeded, got {:?}", context);
         };
@@ -240,9 +240,9 @@ mod tests {
         assert_eq!(context.email, "hello@world.com");
     }
 
-    #[tokio::test]
-    async fn from_request_valid_authenticated() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_valid_authenticated() {
+        let headers = headers! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -251,7 +251,7 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
@@ -264,71 +264,71 @@ mod tests {
     }
 
     error_test_cases! {
-        from_request_missing_session_state() => {
+        try_from_missing_session_state() => {
             header: "user-session",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_invalid_session_state("User-Session" => "unknown") => {
+        try_from_invalid_session_state("User-Session" => "unknown") => {
             header: "user-session",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
     }
 
     error_test_cases! {
-        from_request_registration_needed_missing_oauth_provider(
+        try_from_registration_needed_missing_oauth_provider(
             "User-Session" => "registration-needed",
             "OAuth-User-ID" => "1234567890",
             "OAuth-User-Email" => "hello@world.com",
         ) => {
             header: "oauth-provider-slug",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_registration_needed_oauth_provider_only_accepts_ascii(
+        try_from_registration_needed_oauth_provider_only_accepts_ascii(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "göögle",
             "OAuth-User-ID" => "1234567890",
             "OAuth-User-Email" => "hello@world.com",
         ) => {
             header: "oauth-provider-slug",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
-        from_request_registration_needed_missing_user_id(
+        try_from_registration_needed_missing_user_id(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-Email" => "hello@world.com",
         ) => {
             header: "oauth-user-id",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_registration_needed_user_id_only_accepts_ascii(
+        try_from_registration_needed_user_id_only_accepts_ascii(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-ID" => "123456789ö",
             "OAuth-User-Email" => "hello@world.com",
         ) => {
             header: "oauth-user-id",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
-        from_request_registration_needed_missing_user_email(
+        try_from_registration_needed_missing_user_email(
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-ID" => "1234567890",
         ) => {
             header: "oauth-user-email",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
     }
 
-    #[tokio::test]
-    async fn from_request_registration_needed_user_email_accepts_utf8() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_registration_needed_user_email_accepts_utf8() {
+        let headers = headers! {
             "User-Session" => "registration-needed",
             "OAuth-Provider-Slug" => "google",
             "OAuth-User-ID" => "1234567890",
             "OAuth-User-Email" => "hellö@wörld.cöm",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::RegistrationNeeded(context) = context else {
             panic!("expected Context::RegistrationNeeded, got {:?}", context);
         };
@@ -336,7 +336,7 @@ mod tests {
     }
 
     error_test_cases! {
-        from_request_authenticated_missing_id(
+        try_from_authenticated_missing_id(
             "User-Session" => "authenticated",
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
@@ -344,9 +344,9 @@ mod tests {
             "User-Is-Admin" => "true",
         ) => {
             header: "user-id",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_authenticated_invalid_id(
+        try_from_authenticated_invalid_id(
             "User-Session" => "authenticated",
             "User-ID" => "af",
             "User-Given-Name" => "John",
@@ -355,9 +355,9 @@ mod tests {
             "User-Is-Admin" => "true",
         ) => {
             header: "user-id",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
-        from_request_authenticated_missing_given_name(
+        try_from_authenticated_missing_given_name(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Family-Name" => "Doe",
@@ -365,9 +365,9 @@ mod tests {
             "User-Is-Admin" => "true",
         ) => {
             header: "user-given-name",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_authenticated_missing_family_name(
+        try_from_authenticated_missing_family_name(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -375,9 +375,9 @@ mod tests {
             "User-Is-Admin" => "true",
         ) => {
             header: "user-family-name",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_authenticated_missing_email(
+        try_from_authenticated_missing_email(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -385,9 +385,9 @@ mod tests {
             "User-Is-Admin" => "true",
         ) => {
             header: "user-email",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_authenticated_missing_is_admin(
+        try_from_authenticated_missing_is_admin(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -395,9 +395,9 @@ mod tests {
             "User-Email" => "john.doe@gmail.com",
         ) => {
             header: "user-is-admin",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_authenticated_invalid_is_admin(
+        try_from_authenticated_invalid_is_admin(
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -406,13 +406,13 @@ mod tests {
             "User-Is-Admin" => "0",
         ) => {
             header: "user-is-admin",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         }
     }
 
-    #[tokio::test]
-    async fn from_request_authenticated_given_name_accepts_utf8() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_authenticated_given_name_accepts_utf8() {
+        let headers = headers! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "Jöhn",
@@ -421,16 +421,16 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
         assert_eq!(context.given_name, "Jöhn");
     }
 
-    #[tokio::test]
-    async fn from_request_authenticated_family_name_accepts_utf8() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_authenticated_family_name_accepts_utf8() {
+        let headers = headers! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -439,16 +439,16 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
         assert_eq!(context.family_name, "Döe");
     }
 
-    #[tokio::test]
-    async fn from_request_authenticated_email_accepts_utf8() {
-        let mut parts = request! {
+    #[test]
+    fn try_from_authenticated_email_accepts_utf8() {
+        let headers = headers! {
             "User-Session" => "authenticated",
             "User-ID" => "55",
             "User-Given-Name" => "John",
@@ -457,7 +457,7 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
@@ -515,15 +515,12 @@ mod tests {
             $name:ident ( $context:expr )
         );+ $(;)? ) => {
             $(
-                #[tokio::test]
-                async fn $name() {
+                #[test]
+                fn $name() {
                     let context = $context;
 
-                    let mut request = Request::<()>::default();
-                    *request.headers_mut() = context.clone().into_headers();
-                    let (mut parts, _) = request.into_parts();
-
-                    let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
+                    let headers = context.clone().into_headers();
+                    let roundtripped = Context::try_from(&headers).unwrap();
                     assert_eq!(context, roundtripped);
                 }
             )+

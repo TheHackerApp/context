@@ -1,16 +1,16 @@
-#[cfg(feature = "extract")]
-use crate::headers::{EventOrganizationId, EventSlug, RequestScope};
-#[cfg(feature = "extract")]
-use axum::{
-    async_trait,
-    extract::{rejection::TypedHeaderRejection, FromRequestParts},
+#[cfg(feature = "headers")]
+use crate::headers::{extract, EventOrganizationId, EventSlug, RequestScope};
+#[cfg(feature = "axum")]
+use axum_core::{
+    extract::FromRequestParts,
     response::{IntoResponse, Response},
-    RequestPartsExt, TypedHeader,
 };
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 use headers::HeaderMapExt;
-#[cfg(feature = "extract")]
-use http::{request::Parts, HeaderMap};
+#[cfg(feature = "axum")]
+use http::request::Parts;
+#[cfg(feature = "headers")]
+use http::HeaderMap;
 use serde::{
     de::{Error as _, MapAccess, Visitor},
     ser::SerializeMap,
@@ -95,7 +95,7 @@ pub enum Context {
     Event(EventContext),
 }
 
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 impl Context {
     /// Serialize the context into request headers
     pub fn into_headers(self) -> HeaderMap {
@@ -117,28 +117,38 @@ impl Context {
     }
 }
 
-#[cfg(feature = "extract")]
-#[async_trait]
-impl<S> FromRequestParts<S> for Context
-where
-    S: Send + Sync,
-{
-    type Rejection = TypedHeaderRejection;
+#[cfg(feature = "headers")]
+impl TryFrom<&HeaderMap> for Context {
+    type Error = crate::Error;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let TypedHeader(scope) = parts.extract::<TypedHeader<RequestScope>>().await?;
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let scope = extract::<RequestScope>(headers)?;
 
         Ok(match scope {
             RequestScope::Admin => Self::Admin,
             RequestScope::User => Self::User,
             RequestScope::Event => {
-                Self::Event(EventContext::from_request_parts(parts, state).await?)
+                let context = EventContext::try_from(headers)?;
+                Self::Event(context)
             }
         })
     }
 }
 
-#[cfg(feature = "extract")]
+#[cfg(feature = "axum")]
+#[async_trait::async_trait]
+impl<S> FromRequestParts<S> for Context
+where
+    S: Send + Sync,
+{
+    type Rejection = crate::Error;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Self::try_from(&parts.headers)
+    }
+}
+
+#[cfg(feature = "axum")]
 impl IntoResponse for Context {
     fn into_response(self) -> Response {
         self.into_headers().into_response()
@@ -155,7 +165,7 @@ pub struct EventContext {
     pub organization_id: i32,
 }
 
-#[cfg(feature = "extract")]
+#[cfg(feature = "headers")]
 impl EventContext {
     /// Write the context to request headers
     pub fn write_headers(self, headers: &mut HeaderMap) {
@@ -164,18 +174,13 @@ impl EventContext {
     }
 }
 
-#[cfg(feature = "extract")]
-#[async_trait]
-impl<S> FromRequestParts<S> for EventContext
-where
-    S: Send + Sync,
-{
-    type Rejection = TypedHeaderRejection;
+#[cfg(feature = "headers")]
+impl TryFrom<&HeaderMap> for EventContext {
+    type Error = crate::Error;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let TypedHeader(event) = parts.extract::<TypedHeader<EventSlug>>().await?;
-        let TypedHeader(organization_id) =
-            parts.extract::<TypedHeader<EventOrganizationId>>().await?;
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let event = extract::<EventSlug>(headers)?;
+        let organization_id = extract::<EventOrganizationId>(headers)?;
 
         Ok(Self {
             event: event.into_inner(),
@@ -235,78 +240,47 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "extract"))]
-mod extract_tests {
-    use super::{Context, EventContext, Params};
-    use crate::{error_test_cases, request};
-    use axum::extract::{rejection::TypedHeaderRejectionReason, FromRequestParts, Query};
-    use http::Request;
-    use std::borrow::Cow;
-
-    #[tokio::test]
-    async fn params_domain_from_request() {
-        let request = http::request::Request::builder()
-            .uri("/context?domain=wafflehacks.org")
-            .body(())
-            .unwrap();
-        let (mut parts, _) = request.into_parts();
-
-        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
-            .await
-            .unwrap();
-        assert_eq!(params, Params::Domain(Cow::Borrowed("wafflehacks.org")));
-    }
-
-    #[tokio::test]
-    async fn params_slug_from_request() {
-        let request = http::request::Request::builder()
-            .uri("/context?slug=wafflehacks-2023")
-            .body(())
-            .unwrap();
-        let (mut parts, _) = request.into_parts();
-
-        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
-            .await
-            .unwrap();
-        assert_eq!(params, Params::Slug(Cow::Borrowed("wafflehacks-2023")));
-    }
+#[cfg(all(test, feature = "headers"))]
+mod headers_tests {
+    use super::{Context, EventContext};
+    use crate::{error_test_cases, headers, headers::ErrorKind};
 
     error_test_cases! {
-        from_request_missing_scope() => {
+        try_from_missing_scope() => {
             header: "request-scope",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_invalid_scope("Request-Scope" => "invalid") => {
+        try_from_invalid_scope("Request-Scope" => "invalid") => {
             header: "request-scope",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
     }
 
     #[tokio::test]
-    async fn from_request_admin_valid() {
-        let mut parts = request! { "Request-Scope" => "admin" };
+    async fn try_from_admin_valid() {
+        let headers = headers! { "Request-Scope" => "admin" };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         assert_eq!(context, Context::Admin);
     }
 
     #[tokio::test]
-    async fn from_request_user_valid() {
-        let mut parts = request! { "Request-Scope" => "user" };
+    async fn try_from_user_valid() {
+        let headers = headers! { "Request-Scope" => "user" };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         assert_eq!(context, Context::User);
     }
 
     #[tokio::test]
-    async fn from_request_event_valid() {
-        let mut parts = request! {
+    async fn try_from_event_valid() {
+        let headers = headers! {
             "Request-Scope" => "event",
             "Event-Slug" => "wafflehacks",
             "Event-Organization-ID" => "5",
         };
 
-        let context = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let context = Context::try_from(&headers).unwrap();
         let Context::Event(context) = context else {
             panic!("expected Context::Event, got {context:?}")
         };
@@ -316,38 +290,38 @@ mod extract_tests {
     }
 
     error_test_cases! {
-        from_request_event_missing_slug(
+        try_from_event_missing_slug(
             "Request-Scope" => "event",
             "Event-Organization-ID" => "5",
         ) => {
             header: "event-slug",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_event_slug_only_accepts_ascii(
+        try_from_event_slug_only_accepts_ascii(
             "Request-Scope" => "event",
             "Event-Slug" => "öne",
             "Event-Organization-ID" => "5",
         ) => {
             header: "event-slug",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
     }
 
     error_test_cases! {
-        from_request_event_missing_organization_id(
+        try_from_event_missing_organization_id(
             "Request-Scope" => "event",
             "event-slug" => "wafflehacks",
         ) => {
             header: "event-organization-id",
-            reason: TypedHeaderRejectionReason::Missing,
+            kind: ErrorKind::Missing,
         };
-        from_request_event_invalid_organization_id(
+        try_from_event_invalid_organization_id(
             "Request-Scope" => "event",
             "Event-Slug" => "testing",
             "Event-Organization-ID" => "af",
         ) => {
             header: "event-organization-id",
-            reason: TypedHeaderRejectionReason::Error(_),
+            kind: ErrorKind::Error(_),
         };
     }
 
@@ -380,11 +354,8 @@ mod extract_tests {
     async fn round_trip_admin_context() {
         let context = Context::Admin;
 
-        let mut request = Request::<()>::default();
-        *request.headers_mut() = context.clone().into_headers();
-        let (mut parts, _) = request.into_parts();
-
-        let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let headers = context.clone().into_headers();
+        let roundtripped = Context::try_from(&headers).unwrap();
         assert_eq!(context, roundtripped);
     }
 
@@ -392,11 +363,8 @@ mod extract_tests {
     async fn round_trip_user_context() {
         let context = Context::User;
 
-        let mut request = Request::<()>::default();
-        *request.headers_mut() = context.clone().into_headers();
-        let (mut parts, _) = request.into_parts();
-
-        let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
+        let headers = context.clone().into_headers();
+        let roundtripped = Context::try_from(&headers).unwrap();
         assert_eq!(context, roundtripped);
     }
 
@@ -407,11 +375,43 @@ mod extract_tests {
             organization_id: 99,
         });
 
-        let mut request = Request::<()>::default();
-        *request.headers_mut() = context.clone().into_headers();
+        let headers = context.clone().into_headers();
+        let roundtripped = Context::try_from(&headers).unwrap();
+        assert_eq!(context, roundtripped);
+    }
+}
+
+#[cfg(all(test, feature = "axum"))]
+mod axum_tests {
+    use super::Params;
+    use axum::extract::{FromRequestParts, Query};
+    use std::borrow::Cow;
+
+    #[tokio::test]
+    async fn params_domain_from_request() {
+        let request = http::request::Request::builder()
+            .uri("/context?domain=wafflehacks.org")
+            .body(())
+            .unwrap();
         let (mut parts, _) = request.into_parts();
 
-        let roundtripped = Context::from_request_parts(&mut parts, &()).await.unwrap();
-        assert_eq!(context, roundtripped);
+        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(params, Params::Domain(Cow::Borrowed("wafflehacks.org")));
+    }
+
+    #[tokio::test]
+    async fn params_slug_from_request() {
+        let request = http::request::Request::builder()
+            .uri("/context?slug=wafflehacks-2023")
+            .body(())
+            .unwrap();
+        let (mut parts, _) = request.into_parts();
+
+        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(params, Params::Slug(Cow::Borrowed("wafflehacks-2023")));
     }
 }
