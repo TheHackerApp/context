@@ -21,6 +21,7 @@ use std::borrow::Cow;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Params<'p> {
     /// The session token
+    #[serde(default)]
     pub token: Cow<'p, str>,
 }
 
