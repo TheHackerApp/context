@@ -3,7 +3,7 @@ use crate::headers::{extract, EventOrganizationId, EventSlug, RequestScope};
 #[cfg(feature = "axum")]
 use axum_core::{
     extract::FromRequestParts,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, IntoResponseParts, Response, ResponseParts},
 };
 #[cfg(feature = "headers")]
 use headers::HeaderMapExt;
@@ -145,6 +145,16 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         Self::try_from(&parts.headers)
+    }
+}
+
+#[cfg(feature = "axum")]
+impl IntoResponseParts for Context {
+    type Error = std::convert::Infallible;
+
+    fn into_response_parts(self, mut res: ResponseParts) -> Result<ResponseParts, Self::Error> {
+        self.write_headers(res.headers_mut());
+        Ok(res)
     }
 }
 
