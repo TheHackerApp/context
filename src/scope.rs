@@ -21,26 +21,26 @@ use std::{borrow::Cow, fmt::Formatter, marker::PhantomData};
 /// Query parameters for fetching the scope
 #[derive(Debug)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub enum Params<'p> {
+pub enum ScopeParams<'p> {
     /// Find event context for a domain
     Domain(Cow<'p, str>),
     /// Find event context for a slug
     Slug(Cow<'p, str>),
 }
 
-impl<'de, 'p> Deserialize<'de> for Params<'p> {
+impl<'de, 'p> Deserialize<'de> for ScopeParams<'p> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         #[derive(Default)]
         struct ParamsVisitor<'de, 'p> {
-            marker: PhantomData<Params<'p>>,
+            marker: PhantomData<ScopeParams<'p>>,
             lifetime: PhantomData<&'de ()>,
         }
 
         impl<'de, 'p> Visitor<'de> for ParamsVisitor<'de, 'p> {
-            type Value = Params<'p>;
+            type Value = ScopeParams<'p>;
 
             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
                 formatter.write_str("")
@@ -52,8 +52,8 @@ impl<'de, 'p> Deserialize<'de> for Params<'p> {
             {
                 while let Some((key, value)) = map.next_entry::<&str, String>()? {
                     match key {
-                        "slug" => return Ok(Params::Slug(Cow::Owned(value))),
-                        "domain" => return Ok(Params::Domain(Cow::Owned(value))),
+                        "slug" => return Ok(ScopeParams::Slug(Cow::Owned(value))),
+                        "domain" => return Ok(ScopeParams::Domain(Cow::Owned(value))),
                         _ => continue,
                     }
                 }
@@ -66,7 +66,7 @@ impl<'de, 'p> Deserialize<'de> for Params<'p> {
     }
 }
 
-impl<'p> Serialize for Params<'p> {
+impl<'p> Serialize for ScopeParams<'p> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -82,21 +82,21 @@ impl<'p> Serialize for Params<'p> {
     }
 }
 
-/// The scope response
+/// Information about the scope of the current request
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(rename_all = "lowercase", tag = "kind")]
-pub enum Context {
+pub enum Scope {
     /// A request with global scope
     Admin,
     /// A request scoped to the current user (i.e. login, event selection)
     User,
     /// A request scoped to an event
-    Event(EventContext),
+    Event(EventScope),
 }
 
 #[cfg(feature = "headers")]
-impl Context {
+impl Scope {
     /// Serialize the context into request headers
     pub fn into_headers(self) -> HeaderMap {
         let mut map = HeaderMap::with_capacity(1);
@@ -107,9 +107,9 @@ impl Context {
     /// Write the context to request headers
     pub fn write_headers(self, headers: &mut HeaderMap) {
         match self {
-            Context::Admin => headers.typed_insert(RequestScope::Admin),
-            Context::User => headers.typed_insert(RequestScope::User),
-            Context::Event(context) => {
+            Scope::Admin => headers.typed_insert(RequestScope::Admin),
+            Scope::User => headers.typed_insert(RequestScope::User),
+            Scope::Event(context) => {
                 headers.typed_insert(RequestScope::Event);
                 context.write_headers(headers);
             }
@@ -118,7 +118,7 @@ impl Context {
 }
 
 #[cfg(feature = "headers")]
-impl TryFrom<&HeaderMap> for Context {
+impl TryFrom<&HeaderMap> for Scope {
     type Error = crate::Error;
 
     fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
@@ -128,7 +128,7 @@ impl TryFrom<&HeaderMap> for Context {
             RequestScope::Admin => Self::Admin,
             RequestScope::User => Self::User,
             RequestScope::Event => {
-                let context = EventContext::try_from(headers)?;
+                let context = EventScope::try_from(headers)?;
                 Self::Event(context)
             }
         })
@@ -137,7 +137,7 @@ impl TryFrom<&HeaderMap> for Context {
 
 #[cfg(feature = "axum")]
 #[async_trait::async_trait]
-impl<S> FromRequestParts<S> for Context
+impl<S> FromRequestParts<S> for Scope
 where
     S: Send + Sync,
 {
@@ -149,7 +149,7 @@ where
 }
 
 #[cfg(feature = "axum")]
-impl IntoResponseParts for Context {
+impl IntoResponseParts for Scope {
     type Error = std::convert::Infallible;
 
     fn into_response_parts(self, mut res: ResponseParts) -> Result<ResponseParts, Self::Error> {
@@ -159,16 +159,16 @@ impl IntoResponseParts for Context {
 }
 
 #[cfg(feature = "axum")]
-impl IntoResponse for Context {
+impl IntoResponse for Scope {
     fn into_response(self) -> Response {
         self.into_headers().into_response()
     }
 }
 
-/// Additional information about an event
+/// Additional information about a request scoped to an event
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub struct EventContext {
+pub struct EventScope {
     /// The event slug
     pub event: String,
     /// The ID of the organization that manages the event
@@ -176,7 +176,7 @@ pub struct EventContext {
 }
 
 #[cfg(feature = "headers")]
-impl EventContext {
+impl EventScope {
     /// Write the context to request headers
     pub fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(EventSlug::from(self.event));
@@ -185,7 +185,7 @@ impl EventContext {
 }
 
 #[cfg(feature = "headers")]
-impl TryFrom<&HeaderMap> for EventContext {
+impl TryFrom<&HeaderMap> for EventScope {
     type Error = crate::Error;
 
     fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
@@ -201,12 +201,12 @@ impl TryFrom<&HeaderMap> for EventContext {
 
 #[cfg(test)]
 mod tests {
-    use super::{Context, EventContext, Params};
+    use super::{EventScope, Scope, ScopeParams};
     use std::borrow::Cow;
 
     #[test]
     fn round_trip_params_domain() {
-        let params = Params::Domain(Cow::Borrowed("wafflehacks.org"));
+        let params = ScopeParams::Domain(Cow::Borrowed("wafflehacks.org"));
         let encoded = serde_urlencoded::to_string(&params).unwrap();
         assert_eq!(encoded, "domain=wafflehacks.org");
 
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn round_trip_params_slug() {
-        let params = Params::Slug(Cow::Borrowed("wafflehacks-2023"));
+        let params = ScopeParams::Slug(Cow::Borrowed("wafflehacks-2023"));
         let encoded = serde_urlencoded::to_string(&params).unwrap();
         assert_eq!(encoded, "slug=wafflehacks-2023");
 
@@ -226,19 +226,19 @@ mod tests {
 
     #[test]
     fn context_admin_serializes_as_tagged_union() {
-        let serialized = serde_json::to_string(&Context::Admin).unwrap();
+        let serialized = serde_json::to_string(&Scope::Admin).unwrap();
         assert_eq!(serialized, r#"{"kind":"admin"}"#);
     }
 
     #[test]
     fn context_user_serializes_as_tagged_union() {
-        let serialized = serde_json::to_string(&Context::User).unwrap();
+        let serialized = serde_json::to_string(&Scope::User).unwrap();
         assert_eq!(serialized, r#"{"kind":"user"}"#);
     }
 
     #[test]
     fn context_event_serializes_as_tagged_union() {
-        let ctx = Context::Event(EventContext {
+        let ctx = Scope::Event(EventScope {
             event: String::from("testing"),
             organization_id: 45,
         });
@@ -252,10 +252,11 @@ mod tests {
 
 #[cfg(all(test, feature = "headers"))]
 mod headers_tests {
-    use super::{Context, EventContext};
+    use super::{EventScope, Scope};
     use crate::{error_test_cases, headers, headers::ErrorKind};
 
     error_test_cases! {
+        for Scope;
         try_from_missing_scope() => {
             header: "request-scope",
             kind: ErrorKind::Missing,
@@ -270,16 +271,16 @@ mod headers_tests {
     async fn try_from_admin_valid() {
         let headers = headers! { "Request-Scope" => "admin" };
 
-        let context = Context::try_from(&headers).unwrap();
-        assert_eq!(context, Context::Admin);
+        let context = Scope::try_from(&headers).unwrap();
+        assert_eq!(context, Scope::Admin);
     }
 
     #[tokio::test]
     async fn try_from_user_valid() {
         let headers = headers! { "Request-Scope" => "user" };
 
-        let context = Context::try_from(&headers).unwrap();
-        assert_eq!(context, Context::User);
+        let context = Scope::try_from(&headers).unwrap();
+        assert_eq!(context, Scope::User);
     }
 
     #[tokio::test]
@@ -290,8 +291,8 @@ mod headers_tests {
             "Event-Organization-ID" => "5",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::Event(context) = context else {
+        let context = Scope::try_from(&headers).unwrap();
+        let Scope::Event(context) = context else {
             panic!("expected Context::Event, got {context:?}")
         };
 
@@ -300,6 +301,7 @@ mod headers_tests {
     }
 
     error_test_cases! {
+        for Scope;
         try_from_event_missing_slug(
             "Request-Scope" => "event",
             "Event-Organization-ID" => "5",
@@ -318,6 +320,7 @@ mod headers_tests {
     }
 
     error_test_cases! {
+        for Scope;
         try_from_event_missing_organization_id(
             "Request-Scope" => "event",
             "event-slug" => "wafflehacks",
@@ -337,19 +340,19 @@ mod headers_tests {
 
     #[test]
     fn admin_into_headers() {
-        let headers = Context::Admin.into_headers();
+        let headers = Scope::Admin.into_headers();
         assert_eq!(headers.get("request-scope").unwrap(), "admin");
     }
 
     #[test]
     fn user_into_headers() {
-        let headers = Context::User.into_headers();
+        let headers = Scope::User.into_headers();
         assert_eq!(headers.get("request-scope").unwrap(), "user");
     }
 
     #[test]
     fn event_into_headers() {
-        let context = Context::Event(EventContext {
+        let context = Scope::Event(EventScope {
             event: String::from("testing"),
             organization_id: 99,
         });
@@ -362,38 +365,38 @@ mod headers_tests {
 
     #[tokio::test]
     async fn round_trip_admin_context() {
-        let context = Context::Admin;
+        let context = Scope::Admin;
 
         let headers = context.clone().into_headers();
-        let roundtripped = Context::try_from(&headers).unwrap();
+        let roundtripped = Scope::try_from(&headers).unwrap();
         assert_eq!(context, roundtripped);
     }
 
     #[tokio::test]
     async fn round_trip_user_context() {
-        let context = Context::User;
+        let context = Scope::User;
 
         let headers = context.clone().into_headers();
-        let roundtripped = Context::try_from(&headers).unwrap();
+        let roundtripped = Scope::try_from(&headers).unwrap();
         assert_eq!(context, roundtripped);
     }
 
     #[tokio::test]
     async fn round_trip_event_context() {
-        let context = Context::Event(EventContext {
+        let context = Scope::Event(EventScope {
             event: String::from("testing"),
             organization_id: 99,
         });
 
         let headers = context.clone().into_headers();
-        let roundtripped = Context::try_from(&headers).unwrap();
+        let roundtripped = Scope::try_from(&headers).unwrap();
         assert_eq!(context, roundtripped);
     }
 }
 
 #[cfg(all(test, feature = "axum"))]
 mod axum_tests {
-    use super::Params;
+    use super::ScopeParams;
     use axum::extract::{FromRequestParts, Query};
     use std::borrow::Cow;
 
@@ -405,10 +408,13 @@ mod axum_tests {
             .unwrap();
         let (mut parts, _) = request.into_parts();
 
-        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
+        let Query(params) = Query::<ScopeParams>::from_request_parts(&mut parts, &())
             .await
             .unwrap();
-        assert_eq!(params, Params::Domain(Cow::Borrowed("wafflehacks.org")));
+        assert_eq!(
+            params,
+            ScopeParams::Domain(Cow::Borrowed("wafflehacks.org"))
+        );
     }
 
     #[tokio::test]
@@ -419,9 +425,9 @@ mod axum_tests {
             .unwrap();
         let (mut parts, _) = request.into_parts();
 
-        let Query(params) = Query::<Params>::from_request_parts(&mut parts, &())
+        let Query(params) = Query::<ScopeParams>::from_request_parts(&mut parts, &())
             .await
             .unwrap();
-        assert_eq!(params, Params::Slug(Cow::Borrowed("wafflehacks-2023")));
+        assert_eq!(params, ScopeParams::Slug(Cow::Borrowed("wafflehacks-2023")));
     }
 }

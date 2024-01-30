@@ -1,6 +1,8 @@
+//! Pre-condition checks for use with [`async-graphql`](https://docs.rs/async-graphql)
+
 use crate::{
-    scope::{self, EventContext},
-    user::{self, AuthenticatedContext},
+    scope::{self, EventScope},
+    user::{self, AuthenticatedUser},
 };
 use async_graphql::{Context, Error, ErrorExtensions, Result};
 
@@ -23,31 +25,31 @@ impl From<Forbidden> for Error {
 }
 
 /// Check if the requester is authenticated
-pub fn is_authenticated<'c>(ctx: &'c Context) -> Result<&'c AuthenticatedContext> {
-    let user = ctx.data_unchecked::<user::Context>();
+pub fn is_authenticated<'c>(ctx: &'c Context) -> Result<&'c AuthenticatedUser> {
+    let user = ctx.data_unchecked::<user::User>();
 
     match user {
-        user::Context::Authenticated(context) => Ok(context),
+        user::User::Authenticated(context) => Ok(context),
         _ => Err(Forbidden.into()),
     }
 }
 
 /// Check if the request was scoped to an user
 pub fn is_user(ctx: &Context<'_>) -> Result<()> {
-    let scope = ctx.data_unchecked::<scope::Context>();
+    let scope = ctx.data_unchecked::<scope::Scope>();
 
     match scope {
-        scope::Context::User => Ok(()),
+        scope::Scope::User => Ok(()),
         _ => Err(Forbidden.into()),
     }
 }
 
 /// Check if the request was scoped to an event
-pub fn is_event<'c>(ctx: &Context<'c>) -> Result<&'c EventContext> {
-    let scope = ctx.data_unchecked::<scope::Context>();
+pub fn is_event<'c>(ctx: &Context<'c>) -> Result<&'c EventScope> {
+    let scope = ctx.data_unchecked::<scope::Scope>();
 
     match scope {
-        scope::Context::Event(context) => Ok(context),
+        scope::Scope::Event(context) => Ok(context),
         _ => Err(Forbidden.into()),
     }
 }
@@ -67,9 +69,9 @@ pub fn is_admin(ctx: &Context<'_>) -> Result<()> {
 pub fn admin_only(ctx: &Context<'_>) -> Result<()> {
     is_admin(ctx)?;
 
-    let scope = ctx.data_unchecked::<scope::Context>();
+    let scope = ctx.data_unchecked::<scope::Scope>();
     match scope {
-        scope::Context::Admin => Ok(()),
+        scope::Scope::Admin => Ok(()),
         _ => Err(Forbidden.into()),
     }
 }

@@ -19,30 +19,30 @@ use std::borrow::Cow;
 
 /// Query parameters for fetching the user context
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Params<'p> {
+pub struct UserParams<'p> {
     /// The session token
     #[serde(default)]
     pub token: Cow<'p, str>,
 }
 
-/// The user context response
+/// Information about the requesting user
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum Context {
+pub enum User {
     /// The user is unauthenticated
     Unauthenticated,
     /// The user is in the middle of logging in via OAuth
     #[serde(rename = "oauth")]
     OAuth,
     /// The user needs to complete their registration
-    RegistrationNeeded(RegistrationNeededContext),
+    RegistrationNeeded(UserRegistrationNeeded),
     /// The user is fully authenticated
-    Authenticated(AuthenticatedContext),
+    Authenticated(AuthenticatedUser),
 }
 
 #[cfg(feature = "headers")]
-impl Context {
+impl User {
     /// Serialize the context into request headers
     pub fn into_headers(self) -> HeaderMap {
         let mut map = HeaderMap::with_capacity(1);
@@ -53,13 +53,13 @@ impl Context {
     /// Write the context to request headers
     pub fn write_headers(self, headers: &mut HeaderMap) {
         match self {
-            Context::Unauthenticated => headers.typed_insert(UserSession::Unauthenticated),
-            Context::OAuth => headers.typed_insert(UserSession::OAuth),
-            Context::RegistrationNeeded(context) => {
+            User::Unauthenticated => headers.typed_insert(UserSession::Unauthenticated),
+            User::OAuth => headers.typed_insert(UserSession::OAuth),
+            User::RegistrationNeeded(context) => {
                 headers.typed_insert(UserSession::RegistrationNeeded);
                 context.write_headers(headers);
             }
-            Context::Authenticated(context) => {
+            User::Authenticated(context) => {
                 headers.typed_insert(UserSession::Authenticated);
                 context.write_headers(headers);
             }
@@ -68,7 +68,7 @@ impl Context {
 }
 
 #[cfg(feature = "headers")]
-impl TryFrom<&HeaderMap> for Context {
+impl TryFrom<&HeaderMap> for User {
     type Error = crate::Error;
 
     fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
@@ -78,11 +78,11 @@ impl TryFrom<&HeaderMap> for Context {
             UserSession::Unauthenticated => Self::Unauthenticated,
             UserSession::OAuth => Self::OAuth,
             UserSession::RegistrationNeeded => {
-                let context = RegistrationNeededContext::try_from(headers)?;
+                let context = UserRegistrationNeeded::try_from(headers)?;
                 Self::RegistrationNeeded(context)
             }
             UserSession::Authenticated => {
-                let context = AuthenticatedContext::try_from(headers)?;
+                let context = AuthenticatedUser::try_from(headers)?;
                 Self::Authenticated(context)
             }
         })
@@ -91,7 +91,7 @@ impl TryFrom<&HeaderMap> for Context {
 
 #[cfg(feature = "axum")]
 #[async_trait::async_trait]
-impl<S> FromRequestParts<S> for Context
+impl<S> FromRequestParts<S> for User
 where
     S: Send + Sync,
 {
@@ -103,7 +103,7 @@ where
 }
 
 #[cfg(feature = "axum")]
-impl IntoResponseParts for Context {
+impl IntoResponseParts for User {
     type Error = std::convert::Infallible;
 
     fn into_response_parts(self, mut res: ResponseParts) -> Result<ResponseParts, Self::Error> {
@@ -113,16 +113,16 @@ impl IntoResponseParts for Context {
 }
 
 #[cfg(feature = "axum")]
-impl IntoResponse for Context {
+impl IntoResponse for User {
     fn into_response(self) -> Response {
         self.into_headers().into_response()
     }
 }
 
-/// Context parameters when the user needs to finish their registration
+/// Details about a user that needs to complete their registration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub struct RegistrationNeededContext {
+pub struct UserRegistrationNeeded {
     /// The slug of the provider the user authenticated with
     pub provider: String,
     /// The user's ID according to the provider
@@ -132,7 +132,7 @@ pub struct RegistrationNeededContext {
 }
 
 #[cfg(feature = "headers")]
-impl RegistrationNeededContext {
+impl UserRegistrationNeeded {
     /// Write the context to request headers
     fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(OAuthProviderSlug::from(self.provider));
@@ -142,7 +142,7 @@ impl RegistrationNeededContext {
 }
 
 #[cfg(feature = "headers")]
-impl TryFrom<&HeaderMap> for RegistrationNeededContext {
+impl TryFrom<&HeaderMap> for UserRegistrationNeeded {
     type Error = crate::Error;
 
     fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
@@ -158,10 +158,10 @@ impl TryFrom<&HeaderMap> for RegistrationNeededContext {
     }
 }
 
-/// Context parameters when the user is authenticated
+/// Details about an authenticated user
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-pub struct AuthenticatedContext {
+pub struct AuthenticatedUser {
     /// The user's ID
     pub id: i32,
     /// The user's given/first name
@@ -177,7 +177,7 @@ pub struct AuthenticatedContext {
 }
 
 #[cfg(feature = "headers")]
-impl AuthenticatedContext {
+impl AuthenticatedUser {
     /// Write the context to request headers
     fn write_headers(self, headers: &mut HeaderMap) {
         headers.typed_insert(UserId::from(self.id));
@@ -190,7 +190,7 @@ impl AuthenticatedContext {
 }
 
 #[cfg(feature = "headers")]
-impl TryFrom<&HeaderMap> for AuthenticatedContext {
+impl TryFrom<&HeaderMap> for AuthenticatedUser {
     type Error = crate::Error;
 
     fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
@@ -237,7 +237,7 @@ pub enum UserRole {
 
 #[cfg(all(test, feature = "headers"))]
 mod tests {
-    use super::{AuthenticatedContext, Context, RegistrationNeededContext, UserRole};
+    use super::{AuthenticatedUser, User, UserRegistrationNeeded, UserRole};
     use crate::{error_test_cases, headers, headers::ErrorKind};
 
     #[test]
@@ -246,8 +246,8 @@ mod tests {
             "User-Session" => "unauthenticated",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        assert!(matches!(context, Context::Unauthenticated));
+        let context = User::try_from(&headers).unwrap();
+        assert!(matches!(context, User::Unauthenticated));
     }
 
     #[test]
@@ -256,8 +256,8 @@ mod tests {
             "User-Session" => "oauth",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        assert!(matches!(context, Context::OAuth));
+        let context = User::try_from(&headers).unwrap();
+        assert!(matches!(context, User::OAuth));
     }
 
     #[test]
@@ -269,8 +269,8 @@ mod tests {
             "OAuth-User-Email" => "hello@world.com",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::RegistrationNeeded(context) = context else {
+        let context = User::try_from(&headers).unwrap();
+        let User::RegistrationNeeded(context) = context else {
             panic!("expected Context::RegistrationNeeded, got {:?}", context);
         };
 
@@ -291,8 +291,8 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::Authenticated(context) = context else {
+        let context = User::try_from(&headers).unwrap();
+        let User::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
 
@@ -304,6 +304,7 @@ mod tests {
     }
 
     error_test_cases! {
+        for User;
         try_from_missing_session_state() => {
             header: "user-session",
             kind: ErrorKind::Missing,
@@ -315,6 +316,7 @@ mod tests {
     }
 
     error_test_cases! {
+        for User;
         try_from_registration_needed_missing_oauth_provider(
             "User-Session" => "registration-needed",
             "OAuth-User-ID" => "1234567890",
@@ -368,14 +370,15 @@ mod tests {
             "OAuth-User-Email" => "hellö@wörld.cöm",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::RegistrationNeeded(context) = context else {
+        let context = User::try_from(&headers).unwrap();
+        let User::RegistrationNeeded(context) = context else {
             panic!("expected Context::RegistrationNeeded, got {:?}", context);
         };
         assert_eq!(context.email, "hellö@wörld.cöm");
     }
 
     error_test_cases! {
+        for User;
         try_from_authenticated_missing_id(
             "User-Session" => "authenticated",
             "User-Given-Name" => "John",
@@ -492,8 +495,8 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::Authenticated(context) = context else {
+        let context = User::try_from(&headers).unwrap();
+        let User::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
         assert_eq!(context.given_name, "Jöhn");
@@ -511,8 +514,8 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::Authenticated(context) = context else {
+        let context = User::try_from(&headers).unwrap();
+        let User::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
         assert_eq!(context.family_name, "Döe");
@@ -530,8 +533,8 @@ mod tests {
             "User-Is-Admin" => "true",
         };
 
-        let context = Context::try_from(&headers).unwrap();
-        let Context::Authenticated(context) = context else {
+        let context = User::try_from(&headers).unwrap();
+        let User::Authenticated(context) = context else {
             panic!("expected Context::Authenticated, got {:?}", context);
         };
         assert_eq!(context.email, "jöhn.döe@gmail.cöm");
@@ -539,19 +542,19 @@ mod tests {
 
     #[test]
     fn into_headers_unauthenticated() {
-        let headers = Context::Unauthenticated.into_headers();
+        let headers = User::Unauthenticated.into_headers();
         assert_eq!(headers.get("user-session").unwrap(), "unauthenticated");
     }
 
     #[test]
     fn into_headers_oauth() {
-        let headers = Context::OAuth.into_headers();
+        let headers = User::OAuth.into_headers();
         assert_eq!(headers.get("user-session").unwrap(), "oauth");
     }
 
     #[test]
     fn into_headers_registration_needed() {
-        let context = Context::RegistrationNeeded(RegistrationNeededContext {
+        let context = User::RegistrationNeeded(UserRegistrationNeeded {
             provider: String::from("google"),
             id: String::from("01234567890"),
             email: String::from("hello@world.com"),
@@ -566,7 +569,7 @@ mod tests {
 
     #[test]
     fn into_headers_authenticated() {
-        let context = Context::Authenticated(AuthenticatedContext {
+        let context = User::Authenticated(AuthenticatedUser {
             id: 79,
             given_name: String::from("John"),
             family_name: String::from("Doe"),
@@ -594,7 +597,7 @@ mod tests {
                     let context = $context;
 
                     let headers = context.clone().into_headers();
-                    let roundtripped = Context::try_from(&headers).unwrap();
+                    let roundtripped = User::try_from(&headers).unwrap();
                     assert_eq!(context, roundtripped);
                 }
             )+
@@ -602,14 +605,14 @@ mod tests {
     }
 
     test_roundtrip! {
-        roundtrip_unauthenticated(Context::Unauthenticated);
-        roundtrip_oauth(Context::OAuth);
-        roundtrip_registration_needed(Context::RegistrationNeeded(RegistrationNeededContext {
+        roundtrip_unauthenticated(User::Unauthenticated);
+        roundtrip_oauth(User::OAuth);
+        roundtrip_registration_needed(User::RegistrationNeeded(UserRegistrationNeeded {
             provider: String::from("google"),
             id: String::from("01234567890"),
             email: String::from("hellö@wörld.cöm"),
         }));
-        roundtrip_authenticated(Context::Authenticated(AuthenticatedContext {
+        roundtrip_authenticated(User::Authenticated(AuthenticatedUser {
             id: 79,
             given_name: String::from("Jöhn"),
             family_name: String::from("Döe"),

@@ -1,3 +1,3 @@
 # Context
 
-The authentication and authorization context that is passed between services for The Hacker App services.
+The authentication and authorization context that is passed between The Hacker App services.
