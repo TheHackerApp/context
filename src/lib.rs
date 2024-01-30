@@ -3,9 +3,10 @@
 pub mod checks;
 #[cfg(feature = "headers")]
 mod headers;
-/// Context information from the `events` service
+
+/// Information about the type of request
 pub mod scope;
-/// Context information from the `identity` service
+/// Information about the requesting user
 pub mod user;
 
 #[cfg(feature = "graphql")]
