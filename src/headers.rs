@@ -1,3 +1,4 @@
+use crate::user::UserRole;
 #[cfg(feature = "axum")]
 use axum_core::response::{IntoResponse, Response};
 use headers::{Header, HeaderMapExt, HeaderName, HeaderValue};
@@ -21,6 +22,7 @@ static USER_ID: HeaderName = HeaderName::from_static("user-id");
 static USER_GIVEN_NAME: HeaderName = HeaderName::from_static("user-given-name");
 static USER_FAMILY_NAME: HeaderName = HeaderName::from_static("user-family-name");
 static USER_EMAIL: HeaderName = HeaderName::from_static("user-email");
+static USER_ROLE: HeaderName = HeaderName::from_static("user-role");
 static USER_IS_ADMIN: HeaderName = HeaderName::from_static("user-is-admin");
 
 #[derive(Debug)]
@@ -399,6 +401,39 @@ text_header! {
 int_header! {
     /// `User-ID` header containing the user's ID
     UserId, USER_ID
+}
+
+impl Header for UserRole {
+    fn name() -> &'static HeaderName {
+        &USER_ROLE
+    }
+
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
+    where
+        Self: Sized,
+        I: Iterator<Item = &'i HeaderValue>,
+    {
+        let value = values.next().ok_or_else(headers::Error::invalid)?;
+
+        match value.as_bytes() {
+            b"director" => Ok(Self::Director),
+            b"manager" => Ok(Self::Manager),
+            b"organizer" => Ok(Self::Organizer),
+            b"participant" => Ok(Self::Participant),
+            _ => Err(headers::Error::invalid()),
+        }
+    }
+
+    fn encode<E: Extend<HeaderValue>>(&self, values: &mut E) {
+        let value = HeaderValue::from_static(match self {
+            Self::Director => "director",
+            Self::Manager => "manager",
+            Self::Organizer => "organizer",
+            Self::Participant => "participant",
+        });
+
+        values.extend(iter::once(value))
+    }
 }
 
 /// `User-Is-Admin` header containing whether the user is an admin

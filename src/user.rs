@@ -170,6 +170,8 @@ pub struct AuthenticatedContext {
     pub family_name: String,
     /// The user's primary email
     pub email: String,
+    /// The user's role for the scope
+    pub role: UserRole,
     /// Whether the user is an admin
     pub is_admin: bool,
 }
@@ -182,6 +184,7 @@ impl AuthenticatedContext {
         headers.typed_insert(UserGivenName::from(self.given_name));
         headers.typed_insert(UserFamilyName::from(self.family_name));
         headers.typed_insert(UserEmail::from(self.email));
+        headers.typed_insert(self.role);
         headers.typed_insert(UserIsAdmin::from(self.is_admin));
     }
 }
@@ -195,6 +198,7 @@ impl TryFrom<&HeaderMap> for AuthenticatedContext {
         let given_name = extract::<UserGivenName>(headers)?;
         let family_name = extract::<UserFamilyName>(headers)?;
         let email = extract::<UserEmail>(headers)?;
+        let role = extract::<UserRole>(headers)?;
         let is_admin = extract::<UserIsAdmin>(headers)?;
 
         Ok(Self {
@@ -202,14 +206,38 @@ impl TryFrom<&HeaderMap> for AuthenticatedContext {
             given_name: given_name.into_inner(),
             family_name: family_name.into_inner(),
             email: email.into_inner(),
+            role,
             is_admin: is_admin.into_inner(),
         })
     }
 }
 
+/// The role applied to the current user
+///
+/// Transmitted in the `User-Role` header
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum UserRole {
+    /// The highest permissions in an organization
+    ///
+    /// Equivalent to an owner, but cannot modify billing information or delete the organization.
+    Director,
+    /// An elevated user within the organization
+    ///
+    /// Has more permissions than an organizer but less than a director. Managers are able to
+    /// event and organization settings.
+    Manager,
+    /// A normal user within the organization
+    Organizer,
+    /// A participant of an event
+    ///
+    /// Cannot affect anything at the organization level, only has permissions for the individual
+    /// event.
+    Participant,
+}
+
 #[cfg(all(test, feature = "headers"))]
 mod tests {
-    use super::{AuthenticatedContext, Context, RegistrationNeededContext};
+    use super::{AuthenticatedContext, Context, RegistrationNeededContext, UserRole};
     use crate::{error_test_cases, headers, headers::ErrorKind};
 
     #[test]
@@ -259,6 +287,7 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "manager",
             "User-Is-Admin" => "true",
         };
 
@@ -352,6 +381,7 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         ) => {
             header: "user-id",
@@ -363,6 +393,7 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         ) => {
             header: "user-id",
@@ -373,6 +404,7 @@ mod tests {
             "User-ID" => "55",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         ) => {
             header: "user-given-name",
@@ -383,6 +415,7 @@ mod tests {
             "User-ID" => "55",
             "User-Given-Name" => "John",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         ) => {
             header: "user-family-name",
@@ -393,10 +426,34 @@ mod tests {
             "User-ID" => "55",
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         ) => {
             header: "user-email",
             kind: ErrorKind::Missing,
+        };
+        try_from_authenticated_missing_role(
+            "User-Session" => "authenticated",
+            "User-ID" => "55",
+            "User-Given-Name" => "John",
+            "User-Family-Name" => "Doe",
+            "User-Email" => "john.doe@gmail.com",
+            "User-Is-Admin" => "true",
+        ) => {
+            header: "user-role",
+            kind: ErrorKind::Missing,
+        };
+        try_from_authenticated_invalid_role(
+            "User-Session" => "authenticated",
+            "User-ID" => "55",
+            "User-Given-Name" => "John",
+            "User-Family-Name" => "Doe",
+            "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "developer",
+            "User-Is-Admin" => "true",
+        ) => {
+            header: "user-role",
+            kind: ErrorKind::Error(_),
         };
         try_from_authenticated_missing_is_admin(
             "User-Session" => "authenticated",
@@ -404,6 +461,7 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
         ) => {
             header: "user-is-admin",
             kind: ErrorKind::Missing,
@@ -414,11 +472,12 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "0",
         ) => {
             header: "user-is-admin",
             kind: ErrorKind::Error(_),
-        }
+        };
     }
 
     #[test]
@@ -429,6 +488,7 @@ mod tests {
             "User-Given-Name" => "Jöhn",
             "User-Family-Name" => "Doe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         };
 
@@ -447,6 +507,7 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Döe",
             "User-Email" => "john.doe@gmail.com",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         };
 
@@ -465,6 +526,7 @@ mod tests {
             "User-Given-Name" => "John",
             "User-Family-Name" => "Doe",
             "User-Email" => "jöhn.döe@gmail.cöm",
+            "User-Role" => "organizer",
             "User-Is-Admin" => "true",
         };
 
@@ -509,6 +571,7 @@ mod tests {
             given_name: String::from("John"),
             family_name: String::from("Doe"),
             email: String::from("john.doe@gmail.com"),
+            role: UserRole::Manager,
             is_admin: false,
         });
         let headers = context.into_headers();
@@ -551,6 +614,7 @@ mod tests {
             given_name: String::from("Jöhn"),
             family_name: String::from("Döe"),
             email: String::from("jöhn.döe@gmail.cöm"),
+            role: UserRole::Participant,
             is_admin: false,
         }));
     }
