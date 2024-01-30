@@ -1,3 +1,4 @@
+//! Typed headers for passing context information
 use crate::user::UserRole;
 #[cfg(feature = "axum")]
 use axum_core::response::{IntoResponse, Response};
