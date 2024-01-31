@@ -1,7 +1,7 @@
 #[cfg(feature = "headers")]
 use crate::headers::{
-    extract, OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail, UserFamilyName,
-    UserGivenName, UserId, UserIsAdmin, UserSession,
+    extract, extract_opt, OAuthProviderSlug, OAuthUserEmail, OAuthUserId, UserEmail,
+    UserFamilyName, UserGivenName, UserId, UserIsAdmin, UserSession,
 };
 #[cfg(feature = "axum")]
 use axum_core::{
@@ -171,7 +171,7 @@ pub struct AuthenticatedUser {
     /// The user's primary email
     pub email: String,
     /// The user's role for the scope
-    pub role: UserRole,
+    pub role: Option<UserRole>,
     /// Whether the user is an admin
     pub is_admin: bool,
 }
@@ -184,7 +184,9 @@ impl AuthenticatedUser {
         headers.typed_insert(UserGivenName::from(self.given_name));
         headers.typed_insert(UserFamilyName::from(self.family_name));
         headers.typed_insert(UserEmail::from(self.email));
-        headers.typed_insert(self.role);
+        if let Some(role) = self.role {
+            headers.typed_insert(role);
+        }
         headers.typed_insert(UserIsAdmin::from(self.is_admin));
     }
 }
@@ -198,7 +200,7 @@ impl TryFrom<&HeaderMap> for AuthenticatedUser {
         let given_name = extract::<UserGivenName>(headers)?;
         let family_name = extract::<UserFamilyName>(headers)?;
         let email = extract::<UserEmail>(headers)?;
-        let role = extract::<UserRole>(headers)?;
+        let role = extract_opt::<UserRole>(headers)?;
         let is_admin = extract::<UserIsAdmin>(headers)?;
 
         Ok(Self {
@@ -435,17 +437,6 @@ mod tests {
             header: "user-email",
             kind: ErrorKind::Missing,
         };
-        try_from_authenticated_missing_role(
-            "User-Session" => "authenticated",
-            "User-ID" => "55",
-            "User-Given-Name" => "John",
-            "User-Family-Name" => "Doe",
-            "User-Email" => "john.doe@gmail.com",
-            "User-Is-Admin" => "true",
-        ) => {
-            header: "user-role",
-            kind: ErrorKind::Missing,
-        };
         try_from_authenticated_invalid_role(
             "User-Session" => "authenticated",
             "User-ID" => "55",
@@ -541,6 +532,24 @@ mod tests {
     }
 
     #[test]
+    fn try_from_authenticated_role_is_optional() {
+        let headers = headers! {
+            "User-Session" => "authenticated",
+            "User-ID" => "55",
+            "User-Given-Name" => "John",
+            "User-Family-Name" => "Doe",
+            "User-Email" => "john.doe@gmail.cöm",
+            "User-Is-Admin" => "true",
+        };
+
+        let context = User::try_from(&headers).unwrap();
+        let User::Authenticated(context) = context else {
+            panic!("expected Context::Authenticated, got {:?}", context);
+        };
+        assert_eq!(context.role, None);
+    }
+
+    #[test]
     fn into_headers_unauthenticated() {
         let headers = User::Unauthenticated.into_headers();
         assert_eq!(headers.get("user-session").unwrap(), "unauthenticated");
@@ -574,7 +583,7 @@ mod tests {
             given_name: String::from("John"),
             family_name: String::from("Doe"),
             email: String::from("john.doe@gmail.com"),
-            role: UserRole::Manager,
+            role: Some(UserRole::Manager),
             is_admin: false,
         });
         let headers = context.into_headers();
@@ -617,7 +626,7 @@ mod tests {
             given_name: String::from("Jöhn"),
             family_name: String::from("Döe"),
             email: String::from("jöhn.döe@gmail.cöm"),
-            role: UserRole::Participant,
+            role: Some(UserRole::Participant),
             is_admin: false,
         }));
     }
