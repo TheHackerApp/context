@@ -75,6 +75,17 @@ pub enum ErrorKind {
     Error(headers::Error),
 }
 
+/// Extract the provided header from the map if it exists
+pub(crate) fn extract_opt<H>(headers: &HeaderMap) -> Result<Option<H>, Error>
+where
+    H: Header,
+{
+    headers.typed_try_get().map_err(|e| Error {
+        name: H::name(),
+        kind: ErrorKind::Error(e),
+    })
+}
+
 /// Extract the provided header from the map
 pub(crate) fn extract<H>(headers: &HeaderMap) -> Result<H, Error>
 where
