@@ -1,15 +1,12 @@
 //! Pre-condition checks for use with [`async-graphql`](https://docs.rs/async-graphql)
 
-use crate::{
-    scope::{self, EventScope},
-    user::{self, AuthenticatedUser},
-};
+use crate::{scope::{self, EventScope}, user::{self, AuthenticatedUser, UserRole}};
 use async_graphql::{Context, Error, ErrorExtensions, Result};
 
 /// Create an [`async_graphql::Guard`] out of a check function
 pub fn guard<F, R>(check: F) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static
-where
-    F: Fn(&Context<'_>) -> Result<R> + Send + Sync + 'static,
+    where
+        F: Fn(&Context<'_>) -> Result<R> + Send + Sync + 'static,
 {
     move |ctx| check(ctx).map(|_| ())
 }
@@ -73,5 +70,19 @@ pub fn admin_only(ctx: &Context<'_>) -> Result<()> {
     match scope {
         scope::Scope::Admin => Ok(()),
         _ => Err(Forbidden.into()),
+    }
+}
+
+/// Ensure the user has the required role for the event
+pub fn has_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
+    move |ctx| {
+        is_event(ctx)?;
+        let user = is_authenticated(ctx)?;
+
+        if user.role == Some(role) {
+            Ok(())
+        } else {
+            Err(Forbidden.into())
+        }
     }
 }
