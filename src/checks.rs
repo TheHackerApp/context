@@ -14,6 +14,18 @@ where
     move |ctx| check(ctx).map(|_| ())
 }
 
+/// Create a [`async_graphql::Guard`] out of a check function that requires an argument
+pub fn guard_where<F, A, R>(
+    check: F,
+    argument: A,
+) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static
+where
+    A: Copy + Send + Sync + 'static,
+    F: Fn(&Context<'_>, A) -> Result<R> + Send + Sync + 'static,
+{
+    move |ctx| check(ctx, argument).map(|_| ())
+}
+
 /// An error raised when the user has invalid permissions
 #[derive(Debug)]
 pub struct Forbidden;
