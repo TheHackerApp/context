@@ -14,6 +14,18 @@ where
     move |ctx| check(ctx).map(|_| ())
 }
 
+/// Create a [`async_graphql::Guard`] out of a check function that requires an argument
+pub fn guard_where<F, A, R>(
+    check: F,
+    argument: A,
+) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static
+where
+    A: Copy + Send + Sync + 'static,
+    F: Fn(&Context<'_>, A) -> Result<R> + Send + Sync + 'static,
+{
+    move |ctx| check(ctx, argument).map(|_| ())
+}
+
 /// An error raised when the user has invalid permissions
 #[derive(Debug)]
 pub struct Forbidden;
@@ -77,33 +89,27 @@ pub fn admin_only(ctx: &Context<'_>) -> Result<()> {
 }
 
 /// Ensure the user has the required role for the event
-pub fn has_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
-    move |ctx| {
-        is_event(ctx)?;
-        let user = is_authenticated(ctx)?;
+pub fn has_role(ctx: &Context<'_>, role: UserRole) -> Result<()> {
+    is_event(ctx)?;
+    let user = is_authenticated(ctx)?;
 
-        if user.role == Some(role) {
-            Ok(())
-        } else {
-            Err(Forbidden.into())
-        }
+    if user.role == Some(role) {
+        Ok(())
+    } else {
+        Err(Forbidden.into())
     }
 }
 
 /// Ensure the user has at least the required role for the event
-pub fn has_at_least_role(
-    role: UserRole,
-) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
-    move |ctx| {
-        is_event(ctx)?;
-        let user = is_authenticated(ctx)?;
+pub fn has_at_least_role(ctx: &Context<'_>, role: UserRole) -> Result<UserRole> {
+    is_event(ctx)?;
+    let user = is_authenticated(ctx)?;
 
-        if let Some(user_role) = user.role {
-            if user_role >= role {
-                return Ok(());
-            }
+    if let Some(user_role) = user.role {
+        if user_role >= role {
+            return Ok(user_role);
         }
-
-        Err(Forbidden.into())
     }
+
+    Err(Forbidden.into())
 }
