@@ -86,3 +86,19 @@ pub fn has_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + 
         }
     }
 }
+
+/// Ensure the user has at least the required role for the event
+pub fn has_at_least_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
+    move |ctx| {
+        is_event(ctx)?;
+        let user = is_authenticated(ctx)?;
+
+        if let Some(user_role) = user.role {
+            if user_role >= role {
+                return Ok(());
+            }
+        }
+
+        Err(Forbidden.into())
+    }
+}
