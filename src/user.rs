@@ -92,8 +92,8 @@ impl TryFrom<&HeaderMap> for User {
 #[cfg(feature = "axum")]
 #[async_trait::async_trait]
 impl<S> FromRequestParts<S> for User
-    where
-        S: Send + Sync,
+where
+    S: Send + Sync,
 {
     type Rejection = crate::Error;
 

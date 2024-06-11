@@ -1,12 +1,15 @@
 //! Pre-condition checks for use with [`async-graphql`](https://docs.rs/async-graphql)
 
-use crate::{scope::{self, EventScope}, user::{self, AuthenticatedUser, UserRole}};
+use crate::{
+    scope::{self, EventScope},
+    user::{self, AuthenticatedUser, UserRole},
+};
 use async_graphql::{Context, Error, ErrorExtensions, Result};
 
 /// Create an [`async_graphql::Guard`] out of a check function
 pub fn guard<F, R>(check: F) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static
-    where
-        F: Fn(&Context<'_>) -> Result<R> + Send + Sync + 'static,
+where
+    F: Fn(&Context<'_>) -> Result<R> + Send + Sync + 'static,
 {
     move |ctx| check(ctx).map(|_| ())
 }
@@ -88,7 +91,9 @@ pub fn has_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + 
 }
 
 /// Ensure the user has at least the required role for the event
-pub fn has_at_least_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
+pub fn has_at_least_role(
+    role: UserRole,
+) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
     move |ctx| {
         is_event(ctx)?;
         let user = is_authenticated(ctx)?;
