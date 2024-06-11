@@ -2,7 +2,7 @@
 
 use crate::{
     scope::{self, EventScope},
-    user::{self, AuthenticatedUser},
+    user::{self, AuthenticatedUser, UserRole},
 };
 use async_graphql::{Context, Error, ErrorExtensions, Result};
 
@@ -73,5 +73,37 @@ pub fn admin_only(ctx: &Context<'_>) -> Result<()> {
     match scope {
         scope::Scope::Admin => Ok(()),
         _ => Err(Forbidden.into()),
+    }
+}
+
+/// Ensure the user has the required role for the event
+pub fn has_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
+    move |ctx| {
+        is_event(ctx)?;
+        let user = is_authenticated(ctx)?;
+
+        if user.role == Some(role) {
+            Ok(())
+        } else {
+            Err(Forbidden.into())
+        }
+    }
+}
+
+/// Ensure the user has at least the required role for the event
+pub fn has_at_least_role(
+    role: UserRole,
+) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
+    move |ctx| {
+        is_event(ctx)?;
+        let user = is_authenticated(ctx)?;
+
+        if let Some(user_role) = user.role {
+            if user_role >= role {
+                return Ok(());
+            }
+        }
+
+        Err(Forbidden.into())
     }
 }

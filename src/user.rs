@@ -219,22 +219,22 @@ impl TryFrom<&HeaderMap> for AuthenticatedUser {
 /// Transmitted in the `User-Role` header
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum UserRole {
-    /// The highest permissions in an organization
-    ///
-    /// Equivalent to an owner, but cannot modify billing information or delete the organization.
-    Director,
-    /// An elevated user within the organization
-    ///
-    /// Has more permissions than an organizer but less than a director. Managers are able to
-    /// event and organization settings.
-    Manager,
-    /// A normal user within the organization
-    Organizer,
     /// A participant of an event
     ///
     /// Cannot affect anything at the organization level, only has permissions for the individual
     /// event.
     Participant,
+    /// A normal user within the organization
+    Organizer,
+    /// An elevated user within the organization
+    ///
+    /// Has more permissions than an organizer but less than a director. Managers are able to
+    /// event and organization settings.
+    Manager,
+    /// The highest permissions in an organization
+    ///
+    /// Equivalent to an owner, but cannot modify billing information or delete the organization.
+    Director,
 }
 
 #[cfg(all(test, feature = "headers"))]
@@ -629,5 +629,15 @@ mod tests {
             role: Some(UserRole::Participant),
             is_admin: false,
         }));
+    }
+
+    #[test]
+    fn user_role_ordering() {
+        assert!(UserRole::Director > UserRole::Manager);
+        assert!(UserRole::Director > UserRole::Organizer);
+        assert!(UserRole::Director > UserRole::Participant);
+        assert!(UserRole::Manager > UserRole::Organizer);
+        assert!(UserRole::Manager > UserRole::Participant);
+        assert!(UserRole::Organizer > UserRole::Participant);
     }
 }
