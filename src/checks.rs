@@ -89,33 +89,27 @@ pub fn admin_only(ctx: &Context<'_>) -> Result<()> {
 }
 
 /// Ensure the user has the required role for the event
-pub fn has_role(role: UserRole) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
-    move |ctx| {
-        is_event(ctx)?;
-        let user = is_authenticated(ctx)?;
+pub fn has_role(ctx: &Context<'_>, role: UserRole) -> Result<()> {
+    is_event(ctx)?;
+    let user = is_authenticated(ctx)?;
 
-        if user.role == Some(role) {
-            Ok(())
-        } else {
-            Err(Forbidden.into())
-        }
+    if user.role == Some(role) {
+        Ok(())
+    } else {
+        Err(Forbidden.into())
     }
 }
 
 /// Ensure the user has at least the required role for the event
-pub fn has_at_least_role(
-    role: UserRole,
-) -> impl Fn(&Context<'_>) -> Result<()> + Send + Sync + 'static {
-    move |ctx| {
-        is_event(ctx)?;
-        let user = is_authenticated(ctx)?;
+pub fn has_at_least_role(ctx: &Context<'_>, role: UserRole) -> Result<UserRole> {
+    is_event(ctx)?;
+    let user = is_authenticated(ctx)?;
 
-        if let Some(user_role) = user.role {
-            if user_role >= role {
-                return Ok(());
-            }
+    if let Some(user_role) = user.role {
+        if user_role >= role {
+            return Ok(user_role);
         }
-
-        Err(Forbidden.into())
     }
+
+    Err(Forbidden.into())
 }
