@@ -7,7 +7,7 @@ on:  # yamllint disable-line rule:truthy
 jobs:
   generate-matrix:
     name: Generate Build Matrix
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     outputs:
       features: ${{ steps.generator.outputs.features }}
     steps:
@@ -17,7 +17,7 @@ jobs:
 
   library:
     name: Library (${{ matrix.feature }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     needs: [generate-matrix]
     strategy:
       fail-fast: false
@@ -31,7 +31,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.feature }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     needs: [generate-matrix]
     strategy:
       fail-fast: false
